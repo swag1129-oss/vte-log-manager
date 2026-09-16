@@ -222,7 +222,6 @@
     function heroSub(l) {
       const monitorRate = Core.calcMonitorRate(l.target_rate, l.ratio);
       return [
-        l.target_actual && `목표 실제 ${l.target_actual} nm`,
         l.monitor_manual ? "모니터 직접 입력" : (l.ratio && `ratio ${l.ratio}`),
         l.target_rate && `레이트 목표 ${l.target_rate}${monitorRate !== null ? ` → 모니터 ${fmt(monitorRate, 3)}` : ""} Å/s`
       ].filter(Boolean).join(" · ");
@@ -250,8 +249,11 @@
         <div class="summary">${esc(summary)} <span class="elapsed" data-elapsed="${i}">${elapsed}</span></div>
         <div class="body">
           <div class="hero">
-            <div class="hero-label">모니터 목표</div>
-            <div class="hero-value"><span data-hero="${i}">${esc(heroText(l))}</span><small> nm</small></div>
+            <div class="hero-row">
+              <label class="hero-target"><input data-i="${i}" data-k="target_actual" inputmode="decimal" value="${esc(l.target_actual || "")}" placeholder="목표" aria-label="목표 실제 두께"><small>nm (목표)</small></label>
+              <span class="hero-arrow">→</span>
+              <span class="hero-value"><span data-hero="${i}">${esc(heroText(l))}</span><small>nm (모니터)</small></span>
+            </div>
             <div class="hero-sub" data-hero-sub="${i}">${esc(heroSub(l))}</div>
           </div>
           <button class="settings-toggle" data-act="settings" data-i="${i}">${settingsOpen ? "설정 접기 ▴" : `설정 ✎ ${esc(settingsLine(l))}`}</button>
@@ -262,7 +264,6 @@
               ${input("tooling_factor", "TF")}
               <label>마스크<select data-i="${i}" data-k="mask">${masks}</select></label>
               ${input("ratio", "Ratio")}
-              ${input("target_actual", "목표 실제(nm)")}
               ${input("monitor", "모니터(nm)")}
             </div>
             <div class="calc-hint" data-hint="${i}">${l.monitor_manual ? "모니터 두께 직접 입력됨 (지우면 자동 계산)" : l.monitor ? "모니터 = 목표 ÷ ratio" : ""}</div>
