@@ -127,7 +127,11 @@ input, select, textarea { font-size: 16px; }
 .edit-layer .elapsed { font-variant-numeric: tabular-nums; color: #b54708; font-weight: 600; }
 .edit-layer.done .elapsed { color: var(--ok); }
 
-.edit-layer .head .toggle { cursor: pointer; flex: 1; padding: 6px 0; }
+.edit-layer .head .toggle { cursor: pointer; flex: 1; min-width: 0; padding: 6px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.edit-layer .head .mat { color: var(--danger); }
+.edit-layer .head .port { font-weight: 600; color: var(--muted); }
+.edit-layer .mask-select { width: auto; min-height: 34px; padding: 2px 6px; font-size: 16px; flex: none; }
+.edit-layer:not(.collapsed) .summary .sum-text, .edit-layer:not(.collapsed) .summary.no-elapsed { display: none; }
 .edit-layer .summary { cursor: pointer; }
 .combo-line { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted); padding: 3px 0; border-top: 1px dashed #eef0f3; }
 .combo-line:first-of-type { margin-top: 4px; }

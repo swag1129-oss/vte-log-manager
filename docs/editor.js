@@ -259,7 +259,7 @@
       document.body.appendChild(sheet);
     }
     function settingsLine(l) {
-      return [l.port || "소스?", `TF ${l.tooling_factor || "?"}`, `M${l.mask || "?"}`].join(" · ");
+      return [l.port || "소스?", `TF ${l.tooling_factor || "?"}`].join(" · ");
     }
     function layerCard(l, i, isTooling) {
       const prev = draft.layers[i - 1] || {};
@@ -277,14 +277,15 @@
       const state = l.ended_at ? "done" : l.started_at ? "running" : "";
       const elapsed = l.started_ms ? (l.ended_ms ? `소요 ${elapsedText(l.started_ms, l.ended_ms)}` : `경과 ${elapsedText(l.started_ms)}`) : "";
       const rates = l.start_rate || l.end_rate ? `${l.start_rate || "?"}→${l.end_rate || "?"}Å/s` : "";
-      const summary = [l.monitor && `모니터 ${l.monitor}nm`, rates, l.port, l.mask && `M${l.mask}`].filter(Boolean).join(" · ");
+      const summary = [l.monitor && `모니터 ${l.monitor}nm`, rates].filter(Boolean).join(" · ");
       const ports = ["", ...ALL_PORTS].map(p => `<option ${p === l.port ? "selected" : ""}>${esc(p)}</option>`).join("");
-      const masks = ["1", "2", "3"].map(m => `<option ${m === String(l.mask) ? "selected" : ""}>${m}</option>`).join("");
+      const masks = ["1", "2", "3"].map(m => `<option value="${m}" ${m === String(l.mask) ? "selected" : ""}>M${m}</option>`).join("");
       const settingsOpen = l.settings_open ?? !String(l.material || "").trim();
       return `<div class="edit-layer ${state} ${l.collapsed ? "collapsed" : ""}" data-card="${i}">
-        <div class="head"><b class="toggle" role="button" data-act="toggle" data-i="${i}">${l.collapsed ? "▸" : "▾"} ${i + 1}. ${esc(l.material || "재료 선택")}</b>
+        <div class="head"><b class="toggle" role="button" data-act="toggle" data-i="${i}">${l.collapsed ? "▸" : "▾"} ${i + 1}. ${l.material ? `<span class="mat">${esc(l.material)}</span>` : "재료 선택"}${l.port ? ` <span class="port">${esc(l.port)}</span>` : ""}</b>
+          <select class="mask-select" data-i="${i}" data-k="mask" aria-label="마스크">${masks}</select>
           <span class="tools"><button data-act="up" data-i="${i}">↑</button><button data-act="down" data-i="${i}">↓</button><button data-act="remove" data-i="${i}" class="danger">✕</button></span></div>
-        <div class="summary">${esc(summary)} <span class="elapsed" data-elapsed="${i}">${elapsed}</span></div>
+        <div class="summary ${elapsed ? "" : "no-elapsed"}"><span class="sum-text">${esc(summary)}</span> <span class="elapsed" data-elapsed="${i}">${elapsed}</span></div>
         <div class="body">
           <div class="hero">
             <div class="hero-row">
@@ -300,7 +301,6 @@
             <div class="grid3" style="margin-top:6px">
               <label>소스<select data-i="${i}" data-k="port">${ports}</select></label>
               ${input("tooling_factor", "TF")}
-              <label>마스크<select data-i="${i}" data-k="mask">${masks}</select></label>
               ${input("ratio", "Ratio")}
               ${input("monitor", "모니터(nm)")}
             </div>
@@ -521,7 +521,7 @@
         if (!btn) {
           // Tapping the title row or summary of a card toggles it too.
           const zone = e.target.closest(".edit-layer .head, .edit-layer .summary");
-          if (!zone || e.target.closest("button")) return;
+          if (!zone || e.target.closest("button, select")) return;
           btn = zone.closest(".edit-layer").querySelector('[data-act="toggle"]');
         }
         const i = Number(btn.dataset.i), layers = draft.layers;
