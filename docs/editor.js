@@ -226,13 +226,42 @@
         l.target_rate && `레이트 목표 ${l.target_rate}${monitorRate !== null ? ` → 모니터 ${fmt(monitorRate, 3)}` : ""} Å/s`
       ].filter(Boolean).join(" · ");
     }
+    function historyFor(l, limit = 5) {
+      if (!app.model || !l.material || !l.port) return [];
+      return app.model.sourceHistory(l.material, l.port, {limit, excludePath: draft?.editing?.relPath || ""});
+    }
+    function showHistory(l) {
+      const rows = historyFor(l);
+      const pair = (a, b) => [a, b].map(v => (v === "" || v === null || v === undefined ? "?" : Core.fmt(v))).join("→");
+      const sheet = document.createElement("div");
+      sheet.className = "sheet-backdrop";
+      sheet.innerHTML = `<div class="sheet" role="dialog">
+        <div class="meta"><b>${esc(l.material)} · ${esc(l.port)} 지난 기록</b><button data-close>닫기</button></div>
+        ${rows.length ? `<ul class="list">${rows.map((h, n) => `<li><button class="history-row" data-n="${n}">
+          <b>${esc(h.log.dateStr || "날짜 없음")}</b> ${h.log.test ? '<span class="badge none">테스트</span>' : ""}
+          <span>파워 ${pair(h.start_power, h.end_power)} · 온도 ${pair(h.start_temp, h.end_temp)} · 레이트 ${pair(h.start_rate, h.end_rate)}</span>
+        </button></li>`).join("")}</ul>` : `<p class="hint">같은 재료·소스로 증착한 로그가 아직 없어요.</p>`}
+      </div>`;
+      sheet.onclick = e => {
+        const row = e.target.closest("[data-n]");
+        if (row) { sheet.remove(); openLog(rows[Number(row.dataset.n)].log); return; }
+        if (e.target === sheet || e.target.closest("[data-close]")) sheet.remove();
+      };
+      document.body.appendChild(sheet);
+    }
     function settingsLine(l) {
       return [l.port || "소스?", `TF ${l.tooling_factor || "?"}`, `M${l.mask || "?"}`].join(" · ");
     }
     function layerCard(l, i, isTooling) {
       const prev = draft.layers[i - 1] || {};
+      // Power and temperature depend on the source, so their hints come from the last run of this material on this source.
+      const last = k => {
+        const hit = historyFor(l).find(h => h[k] !== "" && h[k] !== null && h[k] !== undefined);
+        return hit ? `placeholder="지난 ${esc(Core.fmt(hit[k]))}"` : "";
+      };
       const placeholder = k => {
-        const from = {start_pressure: "end_pressure", start_power: "end_power", start_temp: "end_temp", start_rate: "end_rate"}[k];
+        if (k === "start_power" || k === "start_temp") return last(k);
+        const from = {start_pressure: "end_pressure", start_rate: "end_rate"}[k];
         return from && prev[from] ? `placeholder="이전 ${esc(prev[from])}"` : "";
       };
       const input = (k, label, mode = "decimal", extra = "") => `<label>${label}<input data-i="${i}" data-k="${k}" inputmode="${mode}" value="${esc(l[k] || "")}" ${placeholder(k)} ${extra}></label>`;
@@ -277,7 +306,9 @@
             </div>
             ${[["pressure", "압력", "text", "×10⁻⁷"], ["rate", "레이트", "decimal", "Å/s"], ["power", "파워", "decimal", ""], ["temp", "온도", "decimal", "°C"]].map(([k, label, mode, unit]) => `
             <div class="measure-row">
-              <span class="measure-label">${label}${unit ? `<small>${unit}</small>` : ""}</span>
+              ${k === "power" || k === "temp"
+                ? `<button class="measure-label link" data-act="history" data-i="${i}">${label}${unit ? `<small>${unit}</small>` : ""}<small>지난 기록 ›</small></button>`
+                : `<span class="measure-label">${label}${unit ? `<small>${unit}</small>` : ""}</span>`}
               <input data-i="${i}" data-k="start_${k}" inputmode="${mode}" value="${esc(l[`start_${k}`] || "")}" ${placeholder(`start_${k}`) || 'placeholder="시작"'} aria-label="${label} 시작">
               <input data-i="${i}" data-k="end_${k}" inputmode="${mode}" value="${esc(l[`end_${k}`] || "")}" placeholder="끝" aria-label="${label} 끝">
             </div>`).join("")}
@@ -492,6 +523,7 @@
           persist();
           return refreshCard(i);
         }
+        if (act === "history") return showHistory(layers[i]);
         if (act === "toggle") {
           layers[i].collapsed = !layers[i].collapsed;
           persist();

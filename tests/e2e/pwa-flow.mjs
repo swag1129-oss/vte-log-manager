@@ -29,6 +29,11 @@ try{
   R.monitorAuto = await ev(`document.querySelector('input[data-i="0"][data-k="monitor"]').value`);
   R.heroOneLine = await ev(`(()=>{const sp=document.querySelector('[data-hero="0"]'),old=sp.textContent;sp.textContent='37.7675';const r=sp.closest('.hero-row');const ok=r.scrollWidth<=r.clientWidth;sp.textContent=old;return {ok,scroll:r.scrollWidth,client:r.clientWidth}})()`);
   R.hero = await ev(`({value:document.querySelector('[data-hero="0"]').textContent, sub:document.querySelector('[data-hero-sub="0"]').textContent, settingsHidden:document.querySelector('[data-card="0"] .settings').hidden, toggle:document.querySelector('[data-card="0"] .settings-toggle').textContent})`);
+  await ev(`document.querySelector('[data-card="0"] [data-act="history"]').click()`); await sleep(300);
+  R.history = await ev(`({powerHint: document.querySelector('input[data-i="0"][data-k="start_power"]').placeholder, tempHint: document.querySelector('input[data-i="0"][data-k="start_temp"]').placeholder, rows: [...document.querySelectorAll(".sheet .history-row")].map(b=>b.innerText.replace(/\\s+/g," ")), empty: document.querySelector(".sheet .hint")?.textContent || ""})`);
+  await shot("1a-history");
+  await ev(`document.querySelector(".sheet [data-close]").click()`); await sleep(100);
+  R.historyClosed = await ev(`!document.querySelector(".sheet-backdrop")`);
   await click('button[data-act="start"][data-i="0"]'); await sleep(100);
   for (const [k,v] of [["start_pressure","9.6"],["start_power","4.9"],["start_temp","240"],["start_rate","0.1"]]) await setVal(`input[data-i="0"][data-k="${k}"]`,v);
   await click('button[data-act="end"][data-i="0"]'); await sleep(100);
