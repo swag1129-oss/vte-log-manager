@@ -144,3 +144,14 @@ input, select, textarea { font-size: 16px; }
 .settings-toggle { width: 100%; min-height: 36px; padding: 4px 10px; font-size: 13px; color: var(--muted); text-align: left; background: #f8fafc; }
 .settings { border: 1px dashed var(--line); border-radius: 10px; padding: 8px; margin-top: 6px; }
 .grid2.tight { margin: 0; }
+
+.measure-head, .measure-row { display: grid; grid-template-columns: 58px 1fr 1fr; gap: 6px; align-items: center; }
+.measure-head { margin-bottom: 4px; }
+.measure-head button { min-height: 40px; padding: 4px 6px; display: flex; flex-direction: column; align-items: center; line-height: 1.1; font-weight: 600; }
+.measure-head button small { font-size: 11px; font-weight: 400; color: var(--muted); min-height: 12px; }
+.edit-layer.running .measure-head button[data-act="start"] { border-color: #f79009; }
+.edit-layer.done .measure-head button { border-color: var(--ok); }
+.measure-row { margin-top: 5px; }
+.measure-row input { min-height: 42px; padding: 8px 10px; }
+.measure-label { font-size: 13px; color: var(--muted); display: flex; flex-direction: column; line-height: 1.15; }
+.measure-label small { font-size: 10px; }

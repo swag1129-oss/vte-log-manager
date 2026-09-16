@@ -268,11 +268,20 @@
             <div class="calc-hint" data-hint="${i}">${l.monitor_manual ? "모니터 두께 직접 입력됨 (지우면 자동 계산)" : l.monitor ? "모니터 = 목표 ÷ ratio" : ""}</div>
             <div class="grid2">${input("target_rate", "목표 실제 레이트(Å/s)")}<span></span></div>
           </div>
-          <div class="phase"><div class="phase-head"><span>시작 <span class="time">${esc(l.started_at || "")}</span></span><button data-act="start" data-i="${i}">${l.started_at ? "시각 다시" : "▶ 시작"}</button></div>
-            <div class="grid2 tight">${input("start_pressure", "압력(×10⁻⁷)", "text")}${input("start_rate", "레이트(Å/s)")}${input("start_power", "파워")}${input("start_temp", "온도")}</div></div>
-          <div class="phase"><div class="phase-head"><span>끝 <span class="time">${esc(l.ended_at || "")}</span></span><button data-act="end" data-i="${i}">${l.ended_at ? "시각 다시" : "■ 끝"}</button></div>
-            <div class="grid2 tight">${input("end_pressure", "압력(×10⁻⁷)", "text")}${input("end_rate", "레이트(Å/s)")}${input("end_power", "파워")}${input("end_temp", "온도")}
-              ${isTooling ? input("measured_actual", "실측 두께(nm)") : ""}</div></div>
+          <div class="phase">
+            <div class="measure-head">
+              <span></span>
+              <button data-act="start" data-i="${i}">${l.started_at ? "▶ 시작 ↺" : "▶ 시작"}<small>${esc((l.started_at || "").slice(11))}</small></button>
+              <button data-act="end" data-i="${i}">${l.ended_at ? "■ 끝 ↺" : "■ 끝"}<small>${esc((l.ended_at || "").slice(11))}</small></button>
+            </div>
+            ${[["pressure", "압력", "text", "×10⁻⁷"], ["rate", "레이트", "decimal", "Å/s"], ["power", "파워", "decimal", ""], ["temp", "온도", "decimal", "°C"]].map(([k, label, mode, unit]) => `
+            <div class="measure-row">
+              <span class="measure-label">${label}${unit ? `<small>${unit}</small>` : ""}</span>
+              <input data-i="${i}" data-k="start_${k}" inputmode="${mode}" value="${esc(l[`start_${k}`] || "")}" ${placeholder(`start_${k}`) || 'placeholder="시작"'} aria-label="${label} 시작">
+              <input data-i="${i}" data-k="end_${k}" inputmode="${mode}" value="${esc(l[`end_${k}`] || "")}" placeholder="끝" aria-label="${label} 끝">
+            </div>`).join("")}
+            ${isTooling ? `<div class="grid2 tight" style="margin-top:6px">${input("measured_actual", "실측 두께(nm)")}<span></span></div>` : ""}
+          </div>
           <label style="margin-top:6px">메모${`<input data-i="${i}" data-k="notes" value="${esc(l.notes || "")}">`}</label>
         </div>
       </div>`;

@@ -65,7 +65,7 @@ try{
   await shot("2-detail");
   // Edit in place.
   await click("#editLogBtn"); await sleep(400);
-  R.editLoaded = await ev(`(()=>({title:document.querySelector("#editorTitle").textContent, layers:document.querySelectorAll(".edit-layer").length, endTemp:document.querySelector('[data-i="0"][data-k="end_temp"]').value, started:document.querySelector('[data-card="0"] .time').textContent}))()`);
+  R.editLoaded = await ev(`(()=>({title:document.querySelector("#editorTitle").textContent, layers:document.querySelectorAll(".edit-layer").length, endTemp:document.querySelector('[data-i="0"][data-k="end_temp"]').value, started:document.querySelector('[data-card="0"] [data-act="start"] small').textContent}))()`);
   await setVal('input[data-i="0"][data-k="end_temp"]',"266"); await sleep(400);
   await click("#uploadBtn"); await waitFor(`!document.querySelector("#screen-log-detail").hidden`, 20000);
   R.afterEdit = await ev(`(()=>({files:Object.entries(__server.files).map(([k,v])=>k.split("/").pop()+" "+v.mode+" "+v.rev), meta:document.querySelector("#logDetail .hint")?.textContent}))()`);
