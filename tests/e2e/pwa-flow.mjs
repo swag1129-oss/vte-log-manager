@@ -27,6 +27,7 @@ try{
   R.afterCombo = await ev(`(()=>{const q=k=>document.querySelector('[data-i="0"][data-k="'+k+'"]').value; return {material:q("material"),port:q("port"),tf:q("tooling_factor"),ratio:q("ratio")};})()`);
   await setVal('input[data-i="0"][data-k="target_actual"]',"5"); await sleep(100);
   R.monitorAuto = await ev(`document.querySelector('input[data-i="0"][data-k="monitor"]').value`);
+  R.heroOneLine = await ev(`(()=>{const sp=document.querySelector('[data-hero="0"]'),old=sp.textContent;sp.textContent='37.7675';const r=sp.closest('.hero-row');const ok=r.scrollWidth<=r.clientWidth;sp.textContent=old;return {ok,scroll:r.scrollWidth,client:r.clientWidth}})()`);
   R.hero = await ev(`({value:document.querySelector('[data-hero="0"]').textContent, sub:document.querySelector('[data-hero-sub="0"]').textContent, settingsHidden:document.querySelector('[data-card="0"] .settings').hidden, toggle:document.querySelector('[data-card="0"] .settings-toggle').textContent})`);
   await click('button[data-act="start"][data-i="0"]'); await sleep(100);
   for (const [k,v] of [["start_pressure","9.6"],["start_power","4.9"],["start_temp","240"],["start_rate","0.1"]]) await setVal(`input[data-i="0"][data-k="${k}"]`,v);
