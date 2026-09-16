@@ -351,8 +351,11 @@
     navigator.serviceWorker.addEventListener("controllerchange", () => {
       if (hadController) $("#updateBanner").hidden = false;
     });
+    // Refresh sw.js in the HTTP cache first; otherwise reg.update() can reuse a copy up to 10 minutes old.
+    const checkUpdate = reg => fetch("sw.js", {cache: "reload"}).catch(() => {}).then(() => reg.update()).catch(() => {});
     navigator.serviceWorker.register("sw.js").then(reg => {
-      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reg.update().catch(() => {}); });
+      checkUpdate(reg);
+      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkUpdate(reg); });
     }).catch(() => {});
     $("#updateBtn").onclick = async () => {
       await editor.flush();

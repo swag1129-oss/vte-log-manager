@@ -4,7 +4,7 @@
   const CONFIG = {
     appKey: "5rz8t9p1imu4wa9",
     defaultRoot: "/NEXT LAB/Log/A222/VTE log/VTE_MANAGER",
-    version: "2026-09-16-bf6680c5"
+    version: "2026-09-16-58174a1b"
   };
   const LS = {author: "vte.author", root: "vte.root"};
   const {fmt, displayDate, calcRequiredMonitor, calcMonitorRate} = VTECore;
@@ -351,8 +351,11 @@
     navigator.serviceWorker.addEventListener("controllerchange", () => {
       if (hadController) $("#updateBanner").hidden = false;
     });
+    // Refresh sw.js in the HTTP cache first; otherwise reg.update() can reuse a copy up to 10 minutes old.
+    const checkUpdate = reg => fetch("sw.js", {cache: "reload"}).catch(() => {}).then(() => reg.update()).catch(() => {});
     navigator.serviceWorker.register("sw.js").then(reg => {
-      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reg.update().catch(() => {}); });
+      checkUpdate(reg);
+      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkUpdate(reg); });
     }).catch(() => {});
     $("#updateBtn").onclick = async () => {
       await editor.flush();

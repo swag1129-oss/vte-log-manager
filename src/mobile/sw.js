@@ -1,9 +1,10 @@
-// App shell cache. Dropbox API calls are never cached; log data lives in IndexedDB.
+// App shell cache. Shell files are fetched with cache: "reload" so GitHub Pages' 10-minute HTTP cache cannot put old files under a new version.
+// Dropbox API calls are never cached; log data lives in IndexedDB.
 const CACHE = "vte-shell-__APP_VERSION__";
 const SHELL = __SHELL_FILES__;
 
 self.addEventListener("install", event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL.map(u => new Request(u, {cache: "reload"})))).then(() => self.skipWaiting()));
 });
 self.addEventListener("activate", event => {
   event.waitUntil(caches.keys()
