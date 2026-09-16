@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VTE Log Manager v11 - A222</title>
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --line: #cfd5dd;
+      --text: #1f2933;
+      --muted: #64748b;
+      --accent: #2364aa;
+      --accent-2: #2f855a;
+      --warn: #b45309;
+      --danger: #b91c1c;
+      --head: #e9edf3;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+    }
+    button, input, select, textarea { font: inherit; }
+    button {
+      border: 1px solid #9aa8b8;
+      background: #fff;
+      color: var(--text);
+      border-radius: 4px;
+      padding: 6px 10px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    button.primary { background: var(--accent); border-color: var(--accent); color: white; }
+    button.good { background: var(--accent-2); border-color: var(--accent-2); color: white; }
+    button.danger { color: var(--danger); border-color: #e2aaaa; }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    input, select, textarea {
+      border: 1px solid #b8c2cc;
+      border-radius: 4px;
+      padding: 5px 7px;
+      background: #fff;
+      min-height: 30px;
+    }
+    input:disabled { background: #eef1f5; color: #6b7280; }
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: #172033;
+      color: white;
+    }
+    .topbar h1 { font-size: 17px; margin: 0 12px 0 0; }
+    .topbar .status { color: #d8e0ea; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .topbar button { border-color: #607086; }
+    .tabs { display: flex; gap: 3px; padding: 8px 8px 0; background: #dde3eb; }
+    .tab-btn {
+      border-radius: 4px 4px 0 0;
+      border-bottom: none;
+      background: #eef2f7;
+      padding: 8px 14px;
+    }
+    .tab-btn.active { background: var(--panel); color: #0f3f74; font-weight: 700; }
+    .tab {
+      display: none;
+      padding: 10px;
+      height: calc(100vh - 96px);
+      overflow: hidden;
+    }
+    .tab.active { display: block; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+    }
+    .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .split { display: grid; grid-template-columns: 260px 1fr; gap: 10px; height: 100%; }
+    .split-wide { display: grid; grid-template-columns: minmax(620px, 1fr) 380px; gap: 10px; height: 100%; }
+    .stack { display: flex; flex-direction: column; gap: 10px; height: 100%; min-height: 0; }
+    .grow { flex: 1; min-height: 0; }
+    .scroll { overflow: auto; min-height: 0; }
+    table { border-collapse: collapse; width: 100%; background: white; }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 5px 7px;
+      text-align: center;
+      vertical-align: middle;
+      min-width: 72px;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      background: var(--head);
+      z-index: 1;
+      font-weight: 700;
+      cursor: default;
+    }
+    th.sortable { cursor: pointer; }
+    td.left, th.left { text-align: left; }
+    .viewer-table tr { cursor: pointer; }
+    .viewer-table tbody tr:hover { background: #eef6ff; }
+    .form-grid { display: grid; grid-template-columns: repeat(4, max-content); gap: 8px 10px; align-items: center; }
+    .muted { color: var(--muted); }
+    .hint { color: var(--muted); font-size: 12px; }
+    .error { color: var(--danger); }
+    .ok { color: var(--accent-2); }
+    .layer-input-table input, .layer-input-table select,
+    .structure-input-table input, .structure-input-table select { width: 100%; min-width: 72px; }
+    .layer-input-table th, .layer-input-table td,
+    .structure-input-table th, .structure-input-table td { min-width: 82px; padding: 4px; }
+    .layer-input-table .wide, .structure-input-table .wide { min-width: 120px; }
+    .material-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      border: 1px solid var(--line);
+      height: 100%;
+      overflow: auto;
+      background: white;
+    }
+    .material-list li {
+      padding: 7px 10px;
+      border-bottom: 1px solid #edf0f4;
+      cursor: pointer;
+    }
+    .material-list li.active, .material-list li:hover { background: #e7f0fb; }
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, .45);
+      z-index: 20;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+    }
+    .modal-backdrop.active { display: flex; }
+    .modal {
+      background: white;
+      border-radius: 7px;
+      border: 1px solid #8090a3;
+      width: min(1120px, 96vw);
+      max-height: 92vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 16px 45px rgba(0,0,0,.22);
+    }
+    .modal.small { width: min(560px, 94vw); }
+    .modal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      background: #f5f7fa;
+    }
+    .modal-head h2 { margin: 0; font-size: 16px; }
+    .modal-body { padding: 12px; overflow: auto; }
+    .modal-foot { padding: 10px 12px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 8px; }
+    canvas { width: 100%; height: 100%; min-height: 520px; background: white; border: 1px solid var(--line); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>VTE Log Manager v11</h1>
+    <button id="pickFolderBtn" class="primary">폴더 선택</button>
+    <button id="refreshBtn" disabled>새로고침</button>
+    <span id="folderStatus" class="status">VTE_MANAGER 폴더를 선택하세요. Process_General, Process_Tooling, Calibration 폴더가 필요합니다.</span>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="viewer">프로세스 로그 뷰어</button>
+    <button class="tab-btn" data-tab="creator">새 프로세스 로그 v11</button>
+    <button class="tab-btn" data-tab="calibration">Calibration / 툴링</button>
+    <button class="tab-btn" data-tab="structure">OLED Structure Manager</button>
+  </div>
+
+  <section id="tab-viewer" class="tab active">
+    <div class="stack">
+      <div class="panel row">
+        <label>재료 검색 <input id="filterMaterial" placeholder="material / filename"></label>
+        <label>시작일 <input id="filterFrom" placeholder="YYMMDD 또는 YYYY-MM-DD"></label>
+        <label>종료일 <input id="filterTo" placeholder="YYMMDD 또는 YYYY-MM-DD"></label>
+        <button id="applyFilterBtn">필터</button>
+        <span id="viewerCount" class="muted"></span>
+      </div>
+      <div class="panel grow scroll">
+        <table class="viewer-table" id="logTable">
+          <thead><tr>
+            <th class="sortable" data-sort="dateStr">date</th>
+            <th class="sortable" data-sort="type">type</th>
+            <th class="sortable left" data-sort="filename">filename</th>
+            <th class="sortable left" data-sort="relPath">relative path</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-creator" class="tab">
+    <div class="stack">
+      <div class="panel row">
+        <label>날짜 (YYMMDD): <input id="newDate" size="8"></label>
+        <label>파일 메모: <input id="newMemo" size="44"></label>
+        <label>로그 종류:
+          <select id="newLogType"><option>일반증착</option><option>툴링</option></select>
+        </label>
+      </div>
+      <div class="panel row">
+        <label>추가 위치: <select id="layerInsertPosition" aria-label="레이어 추가 위치"><option value="end">맨 끝</option></select></label>
+        <button id="addLayerBtn">+ 레이어 추가</button>
+        <button id="removeLayerBtn" class="danger">- 마지막 삭제</button>
+        <button id="undoLayerBtn" disabled>삭제 되돌리기</button>
+        <button id="autofillBtn">Calibration 자동 채우기</button>
+        <button id="recalcBtn">모니터 두께 재계산</button>
+        <button id="saveLogBtn">저장</button>
+        <button id="saveAsLogBtn">다른 이름으로 저장</button>
+        <button id="createLogBtn" class="good">로그 생성 (Excel)</button>
+        <span id="creatorMsg" class="muted"></span>
+      </div>
+      <div class="panel grow scroll">
+      <table id="layerTable" class="layer-input-table">
+          <thead><tr>
+            <th>레이어 / 작업</th><th class="wide">재료</th><th>포트</th><th>Mask</th><th>목표실제</th><th>Monitor목표</th>
+            <th>측정실제</th><th>Ratio</th><th>TF</th><th>Rate</th><th>Source Temp 시/종 (C)</th><th>진공 x10-7</th><th>Power 시/종</th><th class="wide">비고</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+        <datalist id="materialComboOptions"></datalist>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-calibration" class="tab">
+    <div class="split">
+      <div class="panel stack">
+        <div class="row"><strong>재료 목록</strong><span id="materialCount" class="muted"></span></div>
+        <ul id="materialList" class="material-list grow"></ul>
+      </div>
+      <div class="panel stack">
+        <div class="row">
+          <strong id="selectedMaterialTitle">재료 선택</strong>
+          <span id="latestCalText" class="muted"></span>
+          <button id="newCalBtn" class="primary" style="margin-left:auto">새 Calibration 추가</button>
+          <button id="editCalBtn">선택 수정</button>
+          <button id="deleteCalBtn" class="danger">선택 삭제</button>
+        </div>
+        <div class="grow scroll">
+          <table id="calHistoryTable">
+            <thead><tr>
+              <th>날짜</th><th>Ratio</th><th>TF</th><th>Source</th><th>Monitor</th><th>Actual</th><th>Rate</th><th>Power</th><th class="left">파일</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-structure" class="tab">
+    <div class="split-wide">
+      <div class="stack">
+        <div class="panel row">
+          <button id="addStructBtn">+ 레이어</button>
+          <button id="removeStructBtn" class="danger">- 마지막 삭제</button>
+          <button id="openStructBtn">Structure 열기</button>
+          <button id="saveStructBtn">저장</button>
+          <button id="saveAsStructBtn">다른 이름 저장</button>
+          <button id="deleteStructBtn" class="danger">삭제</button>
+          <button id="calcStructBtn" class="good">계산/시각화</button>
+          <span id="structMsg" class="muted">Calibration ratio 기준으로 monitor 두께와 보정 target rate를 계산합니다.</span>
+        </div>
+        <div class="panel scroll" style="max-height:270px">
+          <table id="structureInputTable" class="structure-input-table">
+            <thead><tr>
+              <th>Mode</th><th class="wide">Mat1</th><th>Src1</th><th>TF1</th><th>Vol1%</th>
+              <th class="wide">Mat2</th><th>Src2</th><th>TF2</th><th>Vol2%</th>
+              <th class="wide">Mat3</th><th>Src3</th><th>TF3</th><th>Vol3%</th>
+              <th>실제두께nm</th><th>실제Rate A/s</th><th>Mask</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="panel grow scroll">
+          <table id="structureResultTable">
+            <thead><tr>
+              <th>#</th><th>재료</th><th>vol%</th><th>Ratio</th><th>Actual nm</th><th>Monitor nm</th><th>Actual rate</th><th>Monitor rate</th><th>Mask</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel stack">
+        <strong>Structure preview</strong>
+        <canvas id="stackCanvas" width="360" height="560"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <div id="detailModal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-head"><h2 id="detailTitle">프로세스 로그 상세</h2><div><button id="editDetailBtn">편집</button><button id="deleteDetailBtn" class="danger">삭제</button><button data-close="detailModal">닫기</button></div></div>
+      <div class="modal-body stack">
+        <div>
+          <h3>Material list</h3>
+          <div class="scroll"><table id="detailMaterialTable"><thead><tr><th>material</th><th>port</th></tr></thead><tbody></tbody></table></div>
+        </div>
+        <div class="grow">
+          <h3>Layer data</h3>
+          <div class="scroll"><table id="detailLayerTable"><thead><tr>
+            <th>재료</th><th>Mask</th><th>진공</th><th>Power</th><th>Source Temp</th><th>Rate</th><th>Monitor nm</th><th>Actual nm</th><th>Ratio</th><th>TF</th><th>목표실제</th><th>필요Monitor</th><th class="left">비고</th>
+          </tr></thead><tbody></tbody></table></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="calModal" class="modal-backdrop">
+    <div class="modal small">
+      <div class="modal-head"><h2>새 Calibration 데이터</h2><button data-close="calModal">닫기</button></div>
+      <div class="modal-body">
+        <div class="form-grid" id="calForm"></div>
+        <datalist id="calMaterialComboOptions"></datalist>
+        <p id="ratioPreview" class="ok" style="text-align:center;font-weight:700">Ratio: -</p>
+      </div>
+      <div class="modal-foot">
+        <button data-close="calModal">취소</button>
+        <button id="saveAsCalBtn">다른 이름 저장</button>
+        <button id="saveCalBtn" class="good">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+/*@@CORE@@*/
+/*@@UI@@*/
+  </script>
+</body>
+</html>

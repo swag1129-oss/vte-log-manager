@@ -1,0 +1,9 @@
+{
+  "name": "vte-log-manager",
+  "private": true,
+  "description": "VTE Log Manager desktop app and mobile PWA (A222 thermal evaporator logs)",
+  "scripts": {
+    "build": "node scripts/build.cjs",
+    "test": "node scripts/build.cjs && node tests/run-all.cjs"
+  }
+}

@@ -1,0 +1,66 @@
+// Ported from VTE_MANAGER/tests/log_parser_test.cjs (v9/v10) to run against the v11 build.
+const fs = require('fs');
+const vm = require('vm');
+const assert = require('assert/strict');
+const path = require('path');
+const {XLSX, DIST, fixture, requireFiles, repo} = require('./helpers.cjs');
+const root = repo;
+async function test(file) {
+ const html = fs.readFileSync(file, 'utf8');
+ const script = html.match(/<script>([\s\S]*?)<\/script>/)[1].replace(/    init\(\);/, '');
+ const context = vm.createContext({console, XLSX});
+ vm.runInContext(script, context);
+ vm.runInContext('workbookRows = async file => file;', context);
+ const parse = rows => {context.rows = rows; return vm.runInContext('parseProcessLog({handle: rows})', context);};
+ const actualPath = fixture('general_260904_v9.xlsx');
+ const wb = XLSX.read(fs.readFileSync(actualPath), {type:'buffer'});
+ const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1, defval:null});
+ const parsed = await parse(rows);
+ const ordered = Object.entries(parsed.layers).flatMap(([mat, items]) => items.map(item => ({mat,...item}))).sort((a,b)=>a.sequence-b.sequence);
+ const starts = rows.filter(row=>row[8]==='Start');
+ assert.equal(ordered.length, starts.length);
+ assert.deepEqual(ordered.map(x=>x.mat), starts.map(x=>x[3]));
+ assert.equal(ordered[0].required_monitor, starts[0][19]);
+ assert.equal(ordered[0].end_temp, starts[0][21]);
+ assert(!ordered.some(x=>String(x.notes).startsWith('Monitor target from ratio')));
+ const start = Array(24).fill(null); Object.assign(start,{0:'A',1:'O-2',3:'A',8:'Start',9:7,11:'2',16:1,18:10,19:10});
+ const end = Array(24).fill(null); Object.assign(end,{3:'A',8:10,9:10,10:'Monitor target from ratio 1'});
+ const synthetic = await parse([start,end,start,end]);
+ assert.equal(synthetic.layers.A.length,2);
+ assert.equal(synthetic.layers.A[0].actual_thickness,7);
+ assert.equal(synthetic.layers.A[0].mask,'2');
+ const legacy = await parse([[null,null,null,'A',1,2,3,4,5],[null,null,null,'A',2,3,4,5,6]]);
+ assert.equal(legacy.layers.A.length,2);
+ vm.runInContext('renderLayerRows = () => {}; state.layerRows = [{material:"A"},{material:"B"},{material:"C"}]; deleteLayer(1);',context);
+ assert.equal(vm.runInContext('state.layerRows.map(x=>x.material).join(",")',context),'A,C');
+ assert.equal(vm.runInContext('state.deletedLayers[0].row.material',context),'B');
+ vm.runInContext('addLayerRow({material:"X"}, 0); undoLayerDeletion();',context);
+ assert.equal(vm.runInContext('state.layerRows.map(x=>x.material).join(",")',context),'X,A,B,C');
+ vm.runInContext('addLayerRow({material:"M"}, 2); addLayerRow({material:"Z"});',context);
+ assert.equal(vm.runInContext('state.layerRows.map(x=>x.material).join(",")',context),'X,A,M,B,C,Z');
+ vm.runInContext('addLayerRow({}, -1); addLayerRow({}, 100);',context);
+ assert.equal(vm.runInContext('state.layerRows.length',context),6);
+ vm.runInContext('state.layerRows = []; addLayerRow({material:"First"}, 0);',context);
+ assert.equal(vm.runInContext('state.layerRows[0].material',context),'First');
+ // Exercise the actual editor import, then save and reopen an inserted layer.
+ const elements = new Map();
+ const element = key => {
+   if (!elements.has(key)) elements.set(key,{value:'',textContent:'',click(){},classList:{remove(){},add(){}}});
+   return elements.get(key);
+ };
+ context.document = {querySelector:element};
+ context.rows = rows;
+ await vm.runInContext('loadLogIntoCreator({handle:rows,dateStr:"260904",type:"일반증착",relPath:"test"})',context);
+ assert.equal(vm.runInContext('state.layerRows.map(x=>x.material).join(",")',context),starts.map(x=>x[3]).join(','));
+ vm.runInContext('addLayerRow({material:"Inserted",mask:"2",ratio:"1",target_actual:"5"},3); state.appDir = {}; ensureDir = async () => ({getFileHandle:async()=>({})}); scanAll = async () => {}; writeWorkbookToHandle = async wb => {globalThis.savedWorkbook = wb;};',context);
+ context.confirm = () => true;
+ context.alert = message => {throw new Error(message)};
+ await vm.runInContext('createLog(true)',context);
+ const saved = context.savedWorkbook;
+ const reopened = await parse(XLSX.utils.sheet_to_json(saved.Sheets[saved.SheetNames[0]],{header:1,defval:null}));
+ const savedOrder = Object.entries(reopened.layers).flatMap(([mat,items])=>items.map(item=>({mat,...item}))).sort((a,b)=>a.sequence-b.sequence).map(x=>x.mat);
+ const expected = starts.map(x=>x[3]); expected.splice(3,0,'Inserted');
+ assert.deepEqual(savedOrder,expected);
+ console.log(path.relative(root,file)+': PASS; actual log '+ordered.length+' layers, sequence, pair merge, tooling measurement, legacy rows, insertion at start/middle/end, deletion undo after insertion, editor import, Excel save/reopen order');
+}
+(async()=>{if(!requireFiles(fixture('general_260904_v9.xlsx')))return;await test(DIST);})().catch(e=>{console.error(e);process.exit(1)});

@@ -1,0 +1,6 @@
+node_modules/
+.DS_Store
+# Real lab data never goes into this public repository.
+tests/fixtures/*.xlsx
+tests/snapshots/
+reference/
