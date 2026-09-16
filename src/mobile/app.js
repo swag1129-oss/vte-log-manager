@@ -55,6 +55,7 @@
         client: app.client, store: app.store, XLSX,
         onProgress: p => status(p.phase === "list" ? "Dropbox 목록 확인 중…" : `받는 중 ${p.done}/${p.total}`)
       });
+      $("#syncError").hidden = true;
       await loadModel();
       if (res.failed.length) status(`동기화 완료 · ${res.failed.length}개 파일 실패`);
       if (app.tab === "logs") renderLogs();
@@ -72,6 +73,8 @@
       }
       app.lastError = `${new Date().toLocaleString("ko-KR")}\n${err.name}: ${err.message}${err.status ? `\nHTTP ${err.status}` : ""}${err.summary ? `\n${err.summary}` : ""}${err.stack ? `\n${String(err.stack).split("\n").slice(0, 4).join("\n")}` : ""}`;
       console.error(err);
+      $("#syncError").textContent = `동기화 오류 (이 화면을 캡처해서 보내주세요)\n\n${app.lastError}`;
+      $("#syncError").hidden = false;
     } finally {
       app.syncing = false;
       $("#syncBtn").disabled = false;
