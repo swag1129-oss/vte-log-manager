@@ -4,3 +4,4 @@ node_modules/
 tests/fixtures/*.xlsx
 tests/snapshots/
 reference/
+dist/windows/
