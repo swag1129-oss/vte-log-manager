@@ -72,7 +72,7 @@
           await VTEStore.cacheUploaded({store: app.store, XLSX, relPath: target, data: bytes, result});
           return {relPath: target, result};
         } catch (err) {
-          if (err.status !== 409) throw err;
+          if (err.status !== 409 || !/conflict/.test(err.summary || "")) throw err;
           if (rev) {
             if (!confirm(`다른 기기에서 먼저 수정된 ${what}예요.\n덮어쓰지 않고 새 파일로 저장할까요?`)) return null;
             rev = null;
@@ -129,6 +129,7 @@
       if (mat && (force || !layer.ratio)) {
         const cal = app.model.latestCalibration(mat, layer.port || null, layer.tooling_factor || null);
         if (cal.ratio) layer.ratio = fmt(cal.ratio, 6);
+        else if (force) layer.ratio = "";
         if (!layer.port && cal.source) layer.port = cal.source;
         if (!layer.tooling_factor && cal.tooling_factor !== null && cal.tooling_factor !== undefined) layer.tooling_factor = fmt(cal.tooling_factor);
       }
@@ -177,7 +178,7 @@
         const p = presets[Number(btn.closest("li").dataset.i)];
         if (btn.dataset.act === "delete") return deletePreset(p);
         if (!(await replaceDraftOk())) return;
-        const layers = Core.presetToDraftLayers(Core.structureRowsFromSheet(app.model.rowsOf(p.relPath) || []));
+        const layers = Core.presetToDraftLayers(Core.structureRowsFromSheet(app.model.rowsOf(p.realPath) || []));
         await startDraft({type: btn.dataset.act === "tooling" ? "툴링" : "일반증착", layers, preset: p.title});
       };
     }
@@ -219,7 +220,7 @@
         totalText: `총 ${fmt(total, 1) || 0} nm (목표)`,
         onItem: i => {
           if (draft.layers[i].collapsed) { setShared(i, "collapsed", false); persist(); refreshCard(i); }
-          VTEStack.scrollToEl($(`[data-card="${i}"]`));
+          VTEStack.scrollToEl($(`[data-card="${blockOf(i)[0]}"]`));
         }
       });
     }
@@ -262,6 +263,7 @@
       if (l.monitor_manual) return "모니터 직접 입력";
       if (!l.ratio) return "";
       const date = calibrationDate(l);
+      if (date === null) return `ratio ${l.ratio}`;
       return `ratio ${l.ratio} · ${date === "" ? "ratio 직접 입력" : `calibration ${date}`}`;
     }
     function historyFor(l, limit = 5) {
@@ -277,7 +279,7 @@
         <div class="meta"><b>${esc(l.material)} · ${esc(l.port)} 지난 기록</b><button data-close>닫기</button></div>
         ${rows.length ? `<ul class="list">${rows.map((h, n) => `<li><button class="history-row" data-n="${n}">
           <b>${esc(h.log.dateStr || "날짜 없음")}</b> ${h.log.test ? '<span class="badge none">테스트</span>' : ""}
-          <span>파워 ${pair(h.start_power, h.end_power)} · 온도 ${pair(h.start_temp, h.end_temp)} · 레이트 ${pair(h.start_rate, h.end_rate)}</span>
+          <span>${esc(`파워 ${pair(h.start_power, h.end_power)} · 온도 ${pair(h.start_temp, h.end_temp)} · 레이트 ${pair(h.start_rate, h.end_rate)}`)}</span>
         </button></li>`).join("")}</ul>` : `<p class="hint">같은 재료·소스로 증착한 로그가 아직 없어요.</p>`}
       </div>`;
       sheet.onclick = e => {
@@ -424,6 +426,29 @@
         </div>
       </div>`;
     }
+    // Update a card without replacing its inputs, so the field the user just tapped keeps focus and the keyboard stays open.
+    function patchCard(i) {
+      const all = blocks(), n = all.findIndex(b => b.includes(i));
+      const card = n < 0 ? null : $(`[data-card="${all[n][0]}"]`);
+      if (!card) return renderEditor();
+      const tmp = document.createElement("div");
+      tmp.innerHTML = cardHtml(all[n], n);
+      const next = tmp.firstElementChild;
+      const fields = el => [...el.querySelectorAll("[data-k]")];
+      const [oldFields, newFields] = [fields(card), fields(next)];
+      if (oldFields.length !== newFields.length || oldFields.some((f, j) => f.dataset.k !== newFields[j].dataset.k || f.dataset.i !== newFields[j].dataset.i)) return refreshCard(i);
+      oldFields.forEach((f, j) => {
+        const nf = newFields[j];
+        if (f.tagName === "SELECT") { f.innerHTML = nf.innerHTML; f.value = nf.value; }
+        else if (f !== document.activeElement) f.value = nf.value;
+        if (f.placeholder !== nf.placeholder) f.placeholder = nf.placeholder;
+      });
+      const texts = ".head .toggle, .summary, .hero-sub, [data-hero], [data-actual], .settings-toggle, .codep-name, .codep-sub, [data-dope], .calc-hint";
+      const [oldTexts, newTexts] = [card.querySelectorAll(texts), next.querySelectorAll(texts)];
+      if (oldTexts.length !== newTexts.length) return refreshCard(i);
+      oldTexts.forEach((t, j) => { if (t.innerHTML !== newTexts[j].innerHTML) t.innerHTML = newTexts[j].innerHTML; });
+      card.className = next.className;
+    }
     function refreshCard(i) {
       const all = blocks(), n = all.findIndex(b => b.includes(i));
       const card = n < 0 ? null : $(`[data-card="${all[n][0]}"]`);
@@ -440,7 +465,11 @@
       if (!/^\d{6}$/.test(d.date)) return err("날짜를 YYMMDD 6자리로 입력해 주세요.");
       const layers = d.layers.filter(l => String(l.material || "").trim());
       if (!layers.length) return err("재료가 입력된 레이어가 하나 이상 필요해요.");
-      if (d.layers.some(l => l.codep && (!String(l.material || "").trim() || Core.toFloat(l.vol) === null))) return err("공증착 재료마다 재료명과 부피비(%)를 입력해 주세요.");
+      const halfFilled = blocks().some(idx => {
+        const members = idx.map(j => d.layers[j]);
+        return members[0].codep && members.some(m => String(m.material || "").trim()) && members.some(m => !String(m.material || "").trim() || Core.toFloat(m.vol) === null);
+      });
+      if (halfFilled) return err("공증착 재료마다 재료명과 부피비(%)를 입력해 주세요.");
       if (!navigator.onLine) return err("오프라인이라 지금은 저장할 수 없어요. 초안은 폰에 남아 있어요.");
       const isTooling = d.type === "툴링";
       const editing = d.editing;
@@ -448,9 +477,11 @@
         ? {...editing.meta, App: `VTE Log PWA ${config.version}`, "Modified By": author(), "Modified At": nowText(), Device: deviceName(), Preset: d.preset || editing.meta.Preset || ""}
         : {App: `VTE Log PWA ${config.version}`, Author: author(), Device: deviceName(), "Created At": d.createdAt, Preset: d.preset};
       const sheet = Core.buildProcessLogSheet({isTooling, layers: Core.draftLayersToEditorRows(layers), memo: d.memo, meta, timeTag: Core.timeTag()});
-      const newPath = `${savePrefix()}${Core.processLogFolder(isTooling, d.date).join("/")}/${sheet.fileName}`;
+      const newPath = `${savePrefix()}${Core.processLogFolder(isTooling, d.date).join("/")}/${Core.pathSafe(sheet.fileName)}`;
       // Edit in place only when the file is where saving is allowed and its type/date did not change.
-      const inPlace = editing && (editing.test || !testMode()) && editing.origType === d.type && editing.origDate === d.date;
+      // Edit in place only in the matching mode (test file in test mode, real file otherwise) and while the file still exists;
+      // a file deleted since opening is saved as a new file instead of being silently recreated.
+      const inPlace = editing && editing.test === testMode() && editing.origType === d.type && editing.origDate === d.date && Boolean(fileRev(editing.realPath));
       $("#uploadBtn").disabled = true;
       try {
         const saved = await uploadFile(inPlace ? editing.realPath : newPath, toWorkbook([sheet]), {rev: inPlace ? fileRev(editing.realPath) : null, what: "로그", fallbackPath: newPath});
@@ -507,7 +538,7 @@
     // ---------- entry points ----------
     async function editLog(log) {
       if (!(await replaceDraftOk())) return;
-      const rows = app.model.rowsOf(log.relPath) || [];
+      const rows = app.model.rowsOf(log.realPath) || [];
       const meta = Core.readSheetMeta(rows);
       const layers = Core.draftLayersFromRows(rows);
       if (!layers.length && !confirm("이 파일은 매니저 양식이 아니라 레이어를 불러오지 못했어요. 빈 로그로 수정할까요?")) return;
@@ -540,7 +571,7 @@
           actual: val("actual"), pressure: val("pressure"), power: val("power"), rate: val("rate"), notes: [val("notes"), `입력: ${author()} (${deviceName()})`].filter(Boolean).join(" / ")});
         if (sheet.error) { box.querySelector("[data-err]").textContent = sheet.error; return; }
         if (!navigator.onLine) { box.querySelector("[data-err]").textContent = "오프라인이라 저장할 수 없어요."; return; }
-        const relPath = `${savePrefix()}${sheet.folder.join("/")}/${sheet.fileName}`;
+        const relPath = `${savePrefix()}${sheet.folder.map(Core.pathSafe).join("/")}/${sheet.fileName}`;
         const existing = app.files.get(relPath);
         if (existing && !confirm(`${sheet.fileName}이(가) 이미 있어요. 덮어쓸까요?`)) return;
         try {
@@ -568,7 +599,7 @@
         draft.layers.push({...Core.DRAFT_LAYER_DEFAULTS, mask: prev?.mask || "1"});
         persist();
         renderEditor();
-        $(`[data-card="${draft.layers.length - 1}"]`)?.scrollIntoView({behavior: "smooth", block: "center"});
+        VTEStack.scrollToEl($(`[data-card="${draft.layers.length - 1}"]`));
       };
       $("#addCodepBtn").onclick = () => {
         const prev = draft.layers[draft.layers.length - 1];
@@ -595,7 +626,7 @@
         if (k === "material") { layer.material = el.value; persist(); return; }
         if (SHARED_KEYS.includes(k)) setShared(i, k, el.value); else layer[k] = el.value;
         if (layer.codep && (k === "codep_total" || k === "vol" || k === "ratio" || k === "monitor")) {
-          if (k === "monitor") layer.monitor_manual = el.value.trim() !== ""; else syncCodep(i);
+          if (k === "monitor") { layer.monitor_manual = el.value.trim() !== ""; recalcMonitor(layer); } else syncCodep(i);
           for (const j of blockOf(i)) {
             const m = draft.layers[j];
             const actual = $(`[data-actual="${j}"]`), hero = $(`[data-hero="${j}"]`), sub = $(`[data-hero-sub="${j}"]`), mon = $(`input[data-i="${j}"][data-k="monitor"]`);
@@ -631,13 +662,18 @@
         const el = e.target, i = Number(el.dataset.i), k = el.dataset.k;
         if (Number.isNaN(i) || !k) return;
         const layer = draft.layers[i];
-        if (k === "material") { applyCombo(layer, el.value.trim()); autofill(layer, {force: true}); }
-        else if (k === "vol" || k === "codep_total") { refreshCard(i); return; }
+        if (k === "material") {
+          // A plain material name (not a combo) must not inherit the previous material's source, TF or ratio.
+          if (!app.model.comboOptions().some(c => c.label === el.value.trim())) Object.assign(layer, {port: "", tooling_factor: "", ratio: ""});
+          applyCombo(layer, el.value.trim());
+          autofill(layer, {force: true});
+        }
+        else if (k === "vol" || k === "codep_total" || k === "monitor") { persist(); patchCard(i); renderStructure(); return; }
         else if (k === "port" || k === "tooling_factor") { layer[k] = el.value; autofill(layer, {force: true}); }
         else if (k === "mask") setShared(i, "mask", el.value);
         else return;
         persist();
-        refreshCard(i);
+        patchCard(i);
         renderStructure();
       });
       cards.addEventListener("click", async e => {
@@ -704,7 +740,14 @@
       });
     }
 
-    return {bind, render, flush, loadDraft, editLog, calibrationForm, hasDraft: () => Boolean(draft), TEST_PREFIX};
+    async function discardIfEditing(realPath) {
+      if (!draft?.editing || draft.editing.realPath !== realPath) return true;
+      if (!confirm("이 로그를 수정 중인 초안이 있어요. 삭제하면 초안도 버려요. 계속할까요?")) return false;
+      draft = null;
+      await app.store.set("draft", null);
+      return true;
+    }
+    return {bind, render, flush, loadDraft, editLog, calibrationForm, discardIfEditing, hasDraft: () => Boolean(draft), TEST_PREFIX};
   }
 
   root.VTEEditor = {create, TEST_PREFIX};

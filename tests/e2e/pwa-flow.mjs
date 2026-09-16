@@ -112,9 +112,13 @@ try{
   await click("#newGeneralBtn"); await sleep(300);
   await click("#addCodepBtn"); await sleep(300);
   const combo = await ev(`(()=>{const o=[...document.querySelectorAll("#materialOptions option")].map(x=>x.value); return {cbp:o.find(v=>/^CBP_/.test(v)), ir:o.find(v=>/^Ir\\(ppy\\)3_/.test(v))}})()`);
+  await setVal('input[data-i="1"][data-k="material"]',"CBP_20_O-2","input"); await setVal('input[data-i="1"][data-k="material"]',"CBP_20_O-2","change"); await sleep(150);
+  await setVal('input[data-i="1"][data-k="material"]',"NoSuchMat","input"); await setVal('input[data-i="1"][data-k="material"]',"NoSuchMat","change"); await sleep(150);
+  R.staleRatio = await ev(`(()=>{const q=k=>document.querySelector('[data-i="1"][data-k="'+k+'"]').value; return {material:q("material"), port:q("port"), tf:q("tooling_factor"), ratio:q("ratio"), monitor:q("monitor")}})()`);
   for (const [i,v] of [[1,combo.cbp],[2,combo.ir]]) { await setVal(`input[data-i="${i}"][data-k="material"]`,v,"input"); await setVal(`input[data-i="${i}"][data-k="material"]`,v,"change"); await sleep(200); }
   await setVal('input[data-i="1"][data-k="vol"]',"94"); await setVal('input[data-i="2"][data-k="vol"]',"6");
   await setVal('input[data-i="1"][data-k="codep_total"]',"30"); await sleep(200);
+  R.focusKept = await ev(`(()=>{const a=document.querySelector('input[data-i="1"][data-k="vol"]'), b=document.querySelector('input[data-i="2"][data-k="vol"]'); a.focus(); b.focus(); a.dispatchEvent(new Event("change",{bubbles:true})); return {focused: document.activeElement===b, connected: b.isConnected, actual: document.querySelector('[data-actual="1"]').textContent}})()`);
   await click('button[data-act="start"][data-i="1"]'); await sleep(100);
   await setVal('input[data-i="1"][data-k="start_pressure"]',"5.0"); await setVal('input[data-i="1"][data-k="start_rate"]',"0.5"); await setVal('input[data-i="2"][data-k="start_rate"]',"0.1"); await setVal('input[data-i="2"][data-k="start_power"]',"3.1");
   R.codep = await ev(`(()=>{const c=document.querySelector('.edit-layer.codep'); return {combo:${JSON.stringify(JSON.stringify(combo))}, cards:document.querySelectorAll(".edit-layer").length, title:c.querySelector(".toggle").innerText, lines:[...c.querySelectorAll(".codep-line")].map(x=>x.innerText.replace(/\s+/g," ")), subs:[...c.querySelectorAll(".hero-sub")].map(x=>x.textContent), dope:c.querySelector("[data-dope]").textContent, started:c.querySelector('[data-act="start"] small').textContent, stack:[...document.querySelectorAll("#structureBody .stack-layer")].map(b=>b.innerText.split(String.fromCharCode(10)).join(" "))}})()`);

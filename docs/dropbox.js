@@ -156,8 +156,10 @@
       return res.json();
     }
 
+    // Deletes only the known revision; without one there is no way to tell whether someone changed the file since.
     async function remove(relPath, {rev = null} = {}) {
-      return rpc("/files/delete_v2", rev ? {path: pathFor(relPath), parent_rev: rev} : {path: pathFor(relPath)});
+      if (!rev) throw new DropboxError("파일 버전 정보가 없어 삭제하지 않았어요. 동기화 후 다시 시도해 주세요.", {status: 0, summary: "no_rev"});
+      return rpc("/files/delete_v2", {path: pathFor(relPath), parent_rev: rev});
     }
 
     return {rootPath: rootDisplay, remove, beginLogin, completeLogin, isLoggedIn, logout, listFiles, download, upload, pathFor, relPathOf};

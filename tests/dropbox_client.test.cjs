@@ -105,7 +105,12 @@ function response(status, body, headers = {}) {
   assert.equal(addArg.autorename, false);
   await assert.rejects(client.upload("Presets/test.xlsx", new Uint8Array([1]), {rev: "stale"}), err => err.status === 409 && /conflict/.test(err.summary));
 
+  // Delete only a known revision; no request without one.
+  const beforeRemove = calls.length;
+  await assert.rejects(client.remove("Presets/test.xlsx", {rev: null}), err => err.summary === "no_rev");
+  assert.equal(calls.length, beforeRemove, "no delete request without a rev");
+
   client.logout();
   assert.equal(client.isLoggedIn(), false);
-  console.log("dropbox client: PASS; PKCE login + state check, refresh on 401, paging, Korean header escaping, root guard (no request), add/update/conflict uploads");
+  console.log("dropbox client: PASS; PKCE login + state check, refresh on 401, paging, Korean header escaping, root guard (no request), add/update/conflict uploads, delete requires a rev");
 })().catch(e => { console.error(e); process.exit(1); });

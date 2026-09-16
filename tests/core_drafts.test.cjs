@@ -102,6 +102,22 @@ function toRows(sheets) {
   vm.runInContext("workbookRows = async () => __rows;", v10c);
   assert.deepEqual(JSON.parse(JSON.stringify(await vm.runInContext("parseProcessLog({handle: {}})", v10c))), JSON.parse(JSON.stringify(codepParsed)), "v10 reads co-dep files the same way");
 
+  // Material names with spaces: the co-dep tag is stripped on read, so repeated saves never stack tags.
+  let spaced = [
+    {...Core.DRAFT_LAYER_DEFAULTS, material: "Ir ppy", port: "O-4", codep: "g", vol: "6", codep_total: "30", target_actual: "1.8", notes: "EML"},
+    {...Core.DRAFT_LAYER_DEFAULTS, material: "C B P", port: "O-2", codep: "g", vol: "94", codep_total: "30", target_actual: "28.2", notes: "EML"}
+  ];
+  for (let n = 0; n < 3; n++) spaced = Core.draftLayersFromRows(toRows([Core.buildProcessLogSheet({isTooling: false, layers: Core.draftLayersToEditorRows(spaced)})]));
+  assert.deepEqual(spaced.map(l => l.notes), ["EML", "EML"]);
+
+  // A separator typed inside one value never spills into the other value: start "240~250" stays a start value
+  // (numeric cells keep its number, like the desktop app) and the end stays 260.
+  const tilde = toRows([Core.buildProcessLogSheet({isTooling: false, layers: Core.draftLayersToEditorRows([{...Core.DRAFT_LAYER_DEFAULTS, material: "CBP", port: "O-2", start_temp: "240~250", end_temp: "260", start_power: "3,1", end_power: "3.2"}])})]);
+  const tildeBack = Core.draftLayersFromRows(tilde)[0];
+  assert.deepEqual([tildeBack.start_temp, tildeBack.end_temp, tildeBack.start_power, tildeBack.end_power], ["240", "260", "3,1", "3.2"]);
+
+  assert.equal(Core.pathSafe('ITO/Ag: "x"?'), "ITO_Ag_ _x__");
+
   assert.equal(Core.safeFileName(' EML: "a/b"  구조 '), "EML_ _a_b_ 구조");
   console.log("core drafts: PASS; general/tooling sheet round trip with meta + times, stable re-save, calibration read-back, v10 reads mobile files identically, presets (co-dep split, sheet round trip), co-dep groups (file marker, regroup, stable re-save, v10 parity)");
 })().catch(e => { console.error(e); process.exit(1); });

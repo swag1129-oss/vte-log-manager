@@ -505,10 +505,12 @@
       const target = toFloat(row.target_actual);
       let req = toFloat(row.required_monitor);
       if (req === null) req = calcRequiredMonitor(target, ratio);
-      const [spRaw, epRaw] = splitPair(row.pressure_pair);
+      // Phone drafts pass start/end separately, so a "~" or "," typed inside one value is never split.
+      const pair = (key, pairKey) => (row[`${key}_start`] !== undefined ? [str(row[`${key}_start`]), str(row[`${key}_end`])] : splitPair(row[pairKey]));
+      const [spRaw, epRaw] = pair("pressure", "pressure_pair");
       const [sp, ep] = [pressureX1e7(spRaw), pressureX1e7(epRaw)];
-      const [startPower, endPower] = splitPair(row.power_pair);
-      const [startTemp, endTemp] = splitPair(row.source_temp_pair);
+      const [startPower, endPower] = pair("power", "power_pair");
+      const [startTemp, endTemp] = pair("temp", "source_temp_pair");
       const noteParts = [];
       if (row.notes.trim()) noteParts.push(row.notes.trim());
       if (memoText) noteParts.push(memoText);
@@ -567,7 +569,7 @@
   // Co-deposition: one layer per material sharing a `codep` id. The file keeps one row pair per material (readable by the desktop app)
   // plus a "co-dep <group> <vol%>" marker in column X of the start row and a notes tag, so the phone can regroup them.
   const CODEP_COL = EXTRA_COL + 1;
-  const CODEP_NOTE = /^co-dep \S+ \([\d.]+ vol%\)(?: \/ )?/;
+  const CODEP_NOTE = /^co-dep .+? \([\d.]+ vol%\)(?: \/ )?/;
   function codepGroups(layers) {
     const groups = new Map();
     layers.forEach(l => { if (str(l.codep)) (groups.get(l.codep) || groups.set(l.codep, []).get(l.codep)).push(l); });
@@ -599,7 +601,9 @@
       target_actual: str(l.target_actual), required_monitor: str(l.monitor), measured_actual: str(l.measured_actual),
       ratio: str(l.ratio), tooling_factor: str(l.tooling_factor), rate: str(l.start_rate || l.rate), end_rate: str(l.end_rate),
       pressure_pair: joinPair(l.start_pressure, l.end_pressure), power_pair: joinPair(l.start_power, l.end_power),
-      source_temp_pair: joinPair(l.start_temp, l.end_temp), started_at: str(l.started_at), ended_at: str(l.ended_at)
+      source_temp_pair: joinPair(l.start_temp, l.end_temp),
+      pressure_start: str(l.start_pressure), pressure_end: str(l.end_pressure), power_start: str(l.start_power), power_end: str(l.end_power),
+      temp_start: str(l.start_temp), temp_end: str(l.end_temp), started_at: str(l.started_at), ended_at: str(l.ended_at)
     };
   }
   // name=value pairs written across row 1 from column W.
@@ -684,6 +688,11 @@
     const infoAoa = Object.entries(info).filter(([, v]) => v !== null && v !== undefined && v !== "").map(([k, v]) => [k, v]);
     return [main, {aoa: infoAoa, cols: [16, 40], sheetTitle: "Info"}];
   }
+  // Names built from materials go into Dropbox paths (phone saves): no folder separators or characters Windows clients cannot sync.
+  // The desktop writers keep the v10 names.
+  function pathSafe(name) {
+    return String(name || "").replace(/[\\/:*?"<>|]/g, "_");
+  }
   function safeFileName(name) {
     return String(name || "").replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim().slice(0, 80);
   }
@@ -739,7 +748,7 @@
     calibrationMetaFromRows, calibrationMeasurementsFromRows, matchCalibration, noCalibration, comboLabel, mergeComboOption,
     buildFileIndex, buildCalibrationIndex,
     DRAFT_LAYER_DEFAULTS, draftLayerToEditorRow, draftLayersToEditorRows, codepShare, CODEP_COL, readSheetMeta, draftLayersFromRows, presetToDraftLayers, draftLayersToPresetRows,
-    buildPresetWorkbookSheets, safeFileName, timeTag,
+    buildPresetWorkbookSheets, safeFileName, pathSafe, timeTag,
     setAoa, buildProcessLogSheet, processLogFolder, buildCalibrationSheet, buildStructureSheet, structureRowsFromSheet
   };
 });

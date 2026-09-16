@@ -45,9 +45,13 @@
   async function loadModel() {
     const files = await app.store.allFiles();
     app.files = new Map(files.map(f => [f.relPath, {rev: f.rev, name: f.name}]));
-    // Files saved in test mode appear at their normal place with a "테스트" badge.
+    // In test mode, test files appear at their normal place with a "테스트" badge. With test mode off they are left out,
+    // so test calibrations and presets never feed real runs.
     const prefix = VTEEditor.TEST_PREFIX;
-    app.model = VTEData.createModel(files.map(f => (f.relPath.startsWith(prefix) ? {...f, viewPath: f.relPath.slice(prefix.length)} : f)));
+    const testMode = localStorage.getItem("vte.testMode") !== "0";
+    app.model = VTEData.createModel(files
+      .filter(f => testMode || !f.relPath.startsWith(prefix))
+      .map(f => (f.relPath.startsWith(prefix) ? {...f, viewPath: f.relPath.slice(prefix.length)} : f)));
     const last = await app.store.get("lastSync");
     status(last ? `로그 ${app.model.logs.length}개 · ${new Date(last.at).toLocaleString("ko-KR", {month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit"})} 동기화` : "아직 동기화 전");
   }
@@ -166,7 +170,7 @@
         total += thick || 0;
         return {material, thick: thick || 0, label: thick ? fmt(thick, 1) : ""};
       });
-      return {parts, mask: l.mask ? String(l.mask) : "", state: "", jump: i, co: /^co-dep (\S+) \(/.exec(l.notes || "")?.[1] || null};
+      return {parts, mask: l.mask ? String(l.mask) : "", state: "", jump: i, co: /^co-dep (.+?) \([\d.]+ vol%\)/.exec(l.notes || "")?.[1] || null};
     });
     // Phone co-dep logs keep one layer per material with a "co-dep A:B (x vol%)" note; draw each group as one split block.
     const merged = [];
@@ -187,6 +191,7 @@
     const name = log.filename;
     if (!confirm(`이 로그를 삭제할까요?\n\n${name}\n\nDropbox 휴지통에서 복구할 수 있어요.`)) return;
     if (!log.test && !confirm("실제 로그 폴더의 파일이에요. 정말 삭제할까요?")) return;
+    if (!(await editor.discardIfEditing(log.realPath))) return;
     try {
       await app.client.remove(log.realPath, {rev: app.files.get(log.realPath)?.rev || null});
       await app.store.deleteFiles([log.realPath]);
@@ -200,7 +205,7 @@
     }
   }
   function logMetaLine(log) {
-    const meta = VTECore.readSheetMeta(app.model.rowsOf(log.relPath) || []);
+    const meta = VTECore.readSheetMeta(app.model.rowsOf(log.realPath) || []);
     const parts = [meta.Author && `작성 ${meta.Author}`, meta["Created At"], meta["Modified By"] && `수정 ${meta["Modified By"]} ${meta["Modified At"] || ""}`, meta.Preset && `프리셋 ${meta.Preset}`].filter(Boolean);
     return parts.length ? `<p class="hint">${esc(parts.join(" · "))}</p>` : "";
   }
@@ -214,7 +219,7 @@
       const rows = combos.map(c => {
         const has = c.ratio !== null && c.ratio !== 0;
         return `<div class="combo-line"><span>TF ${esc(fmt(c.tooling_factor) || "?")} · ${esc(c.source || "소스?")}</span>
-          <span><b class="${has ? "" : "muted"}">${has ? fmt(c.ratio, 4) : "실측 없음"}</b> <small>${esc(displayDate(c.date) || "날짜 없음")}</small></span></div>`;
+          <span><b class="${has ? "" : "muted"}">${has ? esc(fmt(c.ratio, 4)) : "실측 없음"}</b> <small>${esc(displayDate(c.date) || "날짜 없음")}</small></span></div>`;
       }).join("");
       return `<li data-mat="${esc(mat)}">
         <div class="name">${esc(mat)}</div>
@@ -236,7 +241,7 @@
         const has = c.ratio !== null && c.ratio !== 0;
         return `<div class="combo" data-i="${i}">
           <div class="meta"><span><b>TF ${esc(fmt(c.tooling_factor) || "?")}</b> · ${esc(c.source || "소스 미기록")}</span><span>${esc(displayDate(c.date) || "날짜 없음")}</span></div>
-          <div class="ratio">${has ? fmt(c.ratio, 4) : "실측 없음"}</div>
+          <div class="ratio">${has ? esc(fmt(c.ratio, 4)) : "실측 없음"}</div>
           ${has ? `<div class="hint">모니터 ${esc(fmt(c.monitor_thickness, 3))} → 실측 ${esc(fmt(c.actual_thickness, 3))} nm</div>` : ""}
           <div class="calc" hidden>
             <label>목표 실제 두께 (nm)<input inputmode="decimal" data-k="thick"></label>
@@ -327,6 +332,7 @@
     $("#testModeToggle").onchange = e => {
       if (!e.target.checked && !confirm("테스트 모드를 끄면 폰에서 저장하는 파일이 실제 로그 폴더에 생겨요. 끌까요?")) { e.target.checked = true; return; }
       localStorage.setItem("vte.testMode", e.target.checked ? "1" : "0");
+      loadModel();
       status(e.target.checked ? "테스트 폴더에만 저장해요." : "실제 로그 폴더에 저장해요.");
     };
     $("#syncBtn").onclick = runSync;
