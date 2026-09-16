@@ -9,6 +9,8 @@
     const {fmt, calcRequiredMonitor, ALL_PORTS} = Core;
     let draft = null;
     let saveTimer = null;
+    let tickTimer = null;
+    let wakeLock = null;
 
     const testMode = () => localStorage.getItem("vte.testMode") !== "0";
     const author = () => localStorage.getItem("vte.author") || "";
@@ -60,10 +62,17 @@
     async function loadDraft() {
       draft = (await app.store.get("draft")) || null;
     }
+    async function flush() {
+      if (!saveTimer) return;
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      await app.store.set("draft", draft);
+    }
     function persist() {
       $("#draftState").textContent = "저장 중…";
       clearTimeout(saveTimer);
       saveTimer = setTimeout(async () => {
+        saveTimer = null;
         await app.store.set("draft", draft);
         $("#draftState").textContent = "초안 저장됨";
       }, 250);
@@ -111,7 +120,9 @@
         : "실제 로그 폴더에 저장돼요.";
       $("#recordStart").hidden = Boolean(draft);
       $("#editor").hidden = !draft;
+      $("#structurePanel").hidden = !draft || app.tab !== "record";
       if (draft) renderEditor(); else renderPresets();
+      syncRunningState();
     }
     function renderPresets() {
       const q = $("#presetSearch").value.trim().toLowerCase();
@@ -146,15 +157,84 @@
       $("#materialOptions").innerHTML = [...app.model.comboOptions().map(c => c.label), ...app.model.materials]
         .map(v => `<option value="${esc(v)}"></option>`).join("");
       $("#layerCards").innerHTML = d.layers.map((l, i) => layerCard(l, i, d.type === "툴링")).join("");
+      renderStructure();
     }
+
+    // ---------- structure panel ----------
+    const PALETTE = ["#cfe3ff", "#ffe2b8", "#cdeed6", "#ffd1d1", "#d3efec", "#e6d6f2", "#ffd6e3", "#e8e0cf", "#d9e7b5", "#f7e3a1"];
+    function colorOf(material) {
+      let h = 0;
+      for (const ch of String(material)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+      return PALETTE[h % PALETTE.length];
+    }
+    // Consecutive co-dep layers from a preset ("co-dep A:B …" notes, same mask) are drawn as one split block.
+    function stackGroups(layers) {
+      const groups = [];
+      layers.forEach((l, i) => {
+        if (!String(l.material || "").trim()) return;
+        const co = /^co-dep (\S+)/.exec(l.notes || "");
+        const last = groups[groups.length - 1];
+        if (co && last && last.co === co[1] && last.mask === String(l.mask) && last.items.length < co[1].split(":").length) last.items.push({l, i});
+        else groups.push({co: co ? co[1] : null, mask: String(l.mask), items: [{l, i}]});
+      });
+      return groups;
+    }
+    function renderStructure() {
+      const panel = $("#structurePanel");
+      const collapsed = localStorage.getItem("vte.structureCollapsed") === "1";
+      panel.classList.toggle("collapsed", collapsed);
+      const groups = stackGroups(draft.layers);
+      const total = groups.reduce((sum, g) => sum + g.items.reduce((s2, {l}) => s2 + (Core.toFloat(l.target_actual) || 0), 0), 0);
+      $("#structureToggle").textContent = `구조 ${groups.length}층 ${collapsed ? "▾" : "▴"}`;
+      $("#structureBody").innerHTML = `<div class="stack-sub">기판</div>` + groups.map(g => {
+        const thick = g.items.reduce((sum, {l}) => sum + (Core.toFloat(l.target_actual) || 0), 0);
+        const height = Math.round(Math.min(64, Math.max(18, 14 + Math.sqrt(thick) * 5)));
+        const running = g.items.some(({l}) => l.started_at && !l.ended_at), done = g.items.every(({l}) => l.ended_at);
+        const label = ({l}) => `${esc(l.material)}${Core.toFloat(l.target_actual) ? ` ${fmt(Core.toFloat(l.target_actual), 1)}` : ""}`;
+        return `<div class="stack-layer ${running ? "running" : done ? "done" : ""}" data-jump="${g.items[0].i}" style="min-height:${height}px">
+          <div class="parts">${g.items.map(it => `<span class="part" style="background:${colorOf(it.l.material)}">${label(it)}</span>`).join("")}</div>
+          <span class="mask">M${esc(g.mask)}</span></div>`;
+      }).join("") + `<div class="stack-total">총 ${fmt(total, 1) || 0} nm (목표)</div>`;
+    }
+
+    // ---------- running layer: elapsed time and keeping the screen on ----------
+    const elapsedText = (from, to = Date.now()) => {
+      const sec = Math.max(0, Math.round((to - from) / 1000));
+      return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+    };
+    function syncRunningState() {
+      const running = draft && app.tab === "record" && draft.layers.some(l => l.started_ms && !l.ended_ms);
+      clearInterval(tickTimer);
+      if (running) {
+        tickTimer = setInterval(() => {
+          draft.layers.forEach((l, i) => {
+            const el = $(`[data-elapsed="${i}"]`);
+            if (el && l.started_ms && !l.ended_ms) el.textContent = `경과 ${elapsedText(l.started_ms)}`;
+          });
+        }, 1000);
+        if ("wakeLock" in navigator && !wakeLock) navigator.wakeLock.request("screen").then(lock => { wakeLock = lock; lock.addEventListener("release", () => { wakeLock = null; }); }).catch(() => {});
+      } else if (wakeLock) {
+        wakeLock.release().catch(() => {});
+      }
+    }
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") syncRunningState(); });
     function layerCard(l, i, isTooling) {
-      const input = (k, label, mode = "decimal", extra = "") => `<label>${label}<input data-i="${i}" data-k="${k}" inputmode="${mode}" value="${esc(l[k] || "")}" ${extra}></label>`;
+      const prev = draft.layers[i - 1] || {};
+      const placeholder = k => {
+        const from = {start_pressure: "end_pressure", start_power: "end_power", start_temp: "end_temp"}[k];
+        return from && prev[from] ? `placeholder="이전 ${esc(prev[from])}"` : "";
+      };
+      const input = (k, label, mode = "decimal", extra = "") => `<label>${label}<input data-i="${i}" data-k="${k}" inputmode="${mode}" value="${esc(l[k] || "")}" ${placeholder(k)} ${extra}></label>`;
       const state = l.ended_at ? "done" : l.started_at ? "running" : "";
+      const elapsed = l.started_ms ? (l.ended_ms ? `소요 ${elapsedText(l.started_ms, l.ended_ms)}` : `경과 ${elapsedText(l.started_ms)}`) : "";
+      const summary = [l.target_actual && `목표 ${l.target_actual}nm`, l.monitor && `모니터 ${l.monitor}`, l.rate && `${l.rate}Å/s`, l.port, l.mask && `M${l.mask}`].filter(Boolean).join(" · ");
       const ports = ["", ...ALL_PORTS].map(p => `<option ${p === l.port ? "selected" : ""}>${esc(p)}</option>`).join("");
       const masks = ["1", "2", "3"].map(m => `<option ${m === String(l.mask) ? "selected" : ""}>${m}</option>`).join("");
-      return `<div class="edit-layer ${state}" data-card="${i}">
-        <div class="head"><b>${i + 1}. ${esc(l.material || "재료 선택")}</b>
+      return `<div class="edit-layer ${state} ${l.collapsed ? "collapsed" : ""}" data-card="${i}">
+        <div class="head"><b data-act="toggle" data-i="${i}">${l.collapsed ? "▸" : "▾"} ${i + 1}. ${esc(l.material || "재료 선택")}</b>
           <span class="tools"><button data-act="up" data-i="${i}">↑</button><button data-act="down" data-i="${i}">↓</button><button data-act="remove" data-i="${i}" class="danger">✕</button></span></div>
+        <div class="summary">${esc(summary)} <span class="elapsed" data-elapsed="${i}">${elapsed}</span></div>
+        <div class="body">
         <label>재료 (목록에서 고르면 소스·TF·ratio 자동)<input data-i="${i}" data-k="material" list="materialOptions" value="${esc(l.material || "")}" autocomplete="off"></label>
         <div class="grid3" style="margin-top:6px">
           <label>소스<select data-i="${i}" data-k="port">${ports}</select></label>
@@ -171,6 +251,7 @@
         <div class="phase"><div class="phase-head"><span>끝 <span class="time">${esc(l.ended_at || "")}</span></span><button data-act="end" data-i="${i}">${l.ended_at ? "시각 다시" : "■ 끝"}</button></div>
           <div class="grid3">${input("end_pressure", "압력(×10⁻⁷)", "text")}${input("end_power", "파워")}${input("end_temp", "온도")}</div></div>
         <label style="margin-top:6px">메모${`<input data-i="${i}" data-k="notes" value="${esc(l.notes || "")}">`}</label>
+        </div>
       </div>`;
     }
     function refreshCard(i) {
@@ -317,6 +398,17 @@
         renderEditor();
         $(`[data-card="${draft.layers.length - 1}"]`)?.scrollIntoView({behavior: "smooth", block: "center"});
       };
+      $("#structureToggle").onclick = () => {
+        localStorage.setItem("vte.structureCollapsed", localStorage.getItem("vte.structureCollapsed") === "1" ? "0" : "1");
+        renderStructure();
+      };
+      $("#structureBody").onclick = e => {
+        const block = e.target.closest("[data-jump]");
+        if (!block) return;
+        const i = Number(block.dataset.jump);
+        if (draft.layers[i].collapsed) { draft.layers[i].collapsed = false; persist(); refreshCard(i); }
+        $(`[data-card="${i}"]`)?.scrollIntoView({behavior: "smooth", block: "start"});
+      };
       $("#uploadBtn").onclick = uploadDraft;
       $("#savePresetBtn").onclick = savePreset;
       $("#discardDraftBtn").onclick = async () => {
@@ -338,6 +430,11 @@
           const mon = $(`input[data-i="${i}"][data-k="monitor"]`);
           if (mon && !layer.monitor_manual) mon.value = layer.monitor;
         }
+        if (k === "monitor" || k === "target_actual" || k === "ratio") {
+          const hint = $(`[data-hint="${i}"]`);
+          if (hint) hint.textContent = layer.monitor_manual ? "모니터 두께 직접 입력됨 (지우면 자동 계산)" : layer.monitor ? "모니터 = 목표 ÷ ratio" : "";
+        }
+        if (k === "target_actual") renderStructure();
         persist();
       });
       cards.addEventListener("change", e => {
@@ -350,15 +447,24 @@
         else return;
         persist();
         refreshCard(i);
+        renderStructure();
       });
       cards.addEventListener("click", async e => {
         const btn = e.target.closest("button[data-act]");
         if (!btn) return;
         const i = Number(btn.dataset.i), layers = draft.layers;
         const act = btn.dataset.act;
+        if (act === "toggle") {
+          layers[i].collapsed = !layers[i].collapsed;
+          persist();
+          return refreshCard(i);
+        }
         if (act === "start" || act === "end") {
           const key = act === "start" ? "started_at" : "ended_at";
+          if (layers[i][key] && !confirm(`${act === "start" ? "시작" : "끝"} 시각을 지금으로 바꿀까요?`)) return;
           layers[i][key] = nowText();
+          layers[i][act === "start" ? "started_ms" : "ended_ms"] = Date.now();
+          if (act === "end") layers[i].collapsed = true;
         } else if (act === "up" && i > 0) [layers[i - 1], layers[i]] = [layers[i], layers[i - 1]];
         else if (act === "down" && i < layers.length - 1) [layers[i + 1], layers[i]] = [layers[i], layers[i + 1]];
         else if (act === "remove") {
@@ -367,11 +473,11 @@
           if (!layers.length) layers.push({...Core.DRAFT_LAYER_DEFAULTS});
         } else return;
         persist();
-        if (act === "start" || act === "end") refreshCard(i); else renderEditor();
+        if (act === "start" || act === "end") { refreshCard(i); renderStructure(); syncRunningState(); } else renderEditor();
       });
     }
 
-    return {bind, render, loadDraft, editLog, calibrationForm, hasDraft: () => Boolean(draft), TEST_PREFIX};
+    return {bind, render, flush, loadDraft, editLog, calibrationForm, hasDraft: () => Boolean(draft), TEST_PREFIX};
   }
 
   root.VTEEditor = {create, TEST_PREFIX};

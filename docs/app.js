@@ -4,7 +4,7 @@
   const CONFIG = {
     appKey: "5rz8t9p1imu4wa9",
     defaultRoot: "/NEXT LAB/Log/A222/VTE log/VTE_MANAGER",
-    version: "2026-09-16-f04e5847"
+    version: "2026-09-16-ad5c6678"
   };
   const LS = {author: "vte.author", root: "vte.root"};
   const {fmt, displayDate, calcRequiredMonitor, calcMonitorRate} = VTECore;
@@ -24,9 +24,10 @@
   }
   function show(screen) {
     $$(".screen").forEach(s => { s.hidden = s.id !== `screen-${screen}`; });
-    const main = ["logs", "log-detail", "cal", "cal-detail", "settings"].includes(screen);
+    const main = ["logs", "log-detail", "record", "cal", "cal-detail", "settings"].includes(screen);
     $("#tabbar").hidden = !main;
     $("#syncBtn").hidden = !main;
+    $("#structurePanel").hidden = !(screen === "record" && editor?.hasDraft());
     window.scrollTo(0, 0);
   }
   function setTab(tab) {
@@ -295,8 +296,23 @@
     renderLogs();
     runSync();
   }
+  // A new app version activates in the background; offer a one-tap reload instead of "open the app twice".
+  function registerServiceWorker() {
+    if (!("serviceWorker" in navigator) || location.protocol !== "https:") return;
+    const hadController = Boolean(navigator.serviceWorker.controller);
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (hadController) $("#updateBanner").hidden = false;
+    });
+    navigator.serviceWorker.register("sw.js").then(reg => {
+      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reg.update().catch(() => {}); });
+    }).catch(() => {});
+    $("#updateBtn").onclick = async () => {
+      await editor.flush();
+      location.reload();
+    };
+  }
   async function start() {
-    if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+    registerServiceWorker();
     editor = VTEEditor.create({app, $, $$, esc, status, show, loadModel, openLog: renderLogDetail, renderCalDetail, setTab, config: CONFIG});
     bind();
     editor.bind();

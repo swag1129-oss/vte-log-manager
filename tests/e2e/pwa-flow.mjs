@@ -37,7 +37,15 @@ try{
   await setVal('input[data-i="1"][data-k="target_actual"]',"30"); await setVal('input[data-i="1"][data-k="monitor"]',"70"); 
   await setVal("#editorMemo","e2e memo");
   await sleep(600);
+  R.ui = await ev(`(()=>({tabbarVisible:!document.querySelector("#tabbar").hidden, panelVisible:!document.querySelector("#structurePanel").hidden, inputFont:getComputedStyle(document.querySelector('input[data-k="material"]')).fontSize, card0Collapsed:document.querySelector('[data-card="0"]').classList.contains("collapsed"), elapsed0:document.querySelector('[data-elapsed="0"]').textContent, placeholder1:document.querySelector('[data-i="1"][data-k="start_pressure"]').placeholder}))()`);
+  await sleep(100);
+  R.panel = await ev(`({toggle:document.querySelector("#structureToggle").textContent, blocks:[...document.querySelectorAll("#structureBody .stack-layer")].map(b=>b.innerText.split(String.fromCharCode(10)).join(" ")), total:document.querySelector(".stack-total").textContent})`);
   await shot("1-editor");
+  await click('[data-card="1"] [data-act=start]'); await ev(`window.scrollTo(0,0)`); await sleep(1500); const vp = await send("Page.captureScreenshot",{format:"png"}); fs.writeFileSync("/tmp/pwa-e2e-run/s3-1b-viewport.png", Buffer.from(vp.result.data,"base64"));
+  // Leave the editor via the tab bar and come back.
+  await click('#tabbar [data-tab="logs"]'); await sleep(200);
+  R.leave = await ev(`({logsVisible:!document.querySelector("#screen-logs").hidden, panelHidden:document.querySelector("#structurePanel").hidden})`);
+  await click('#tabbar [data-tab="record"]'); await sleep(200);
   // Reload: draft survives.
   await send("Page.reload"); await sleep(2500);
   await click('#tabbar [data-tab="record"]'); await sleep(300);
