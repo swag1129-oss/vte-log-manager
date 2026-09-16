@@ -1,5 +1,5 @@
 // App shell cache. Dropbox API calls are never cached; log data lives in IndexedDB.
-const CACHE = "vte-shell-2026-09-16-74478675";
+const CACHE = "vte-shell-2026-09-16-18d50908";
 const SHELL = ["./","index.html","styles.css","app.js","data.js","dropbox.js","store.js","manifest.webmanifest","icons/icon-192.png","icons/icon-512.png","icons/icon-512-maskable.png","icons/apple-touch-icon.png","vte-core.js","xlsx.full.min.js"];
 
 self.addEventListener("install", event => {

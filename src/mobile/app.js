@@ -62,7 +62,11 @@
       if (app.tab === "cal") renderMaterials();
       if (app.tab === "settings") renderSettings();
     } catch (err) {
-      if (err.status === 401 || err.summary === "not_logged_in" || /invalid_grant/.test(err.summary || "")) {
+      if (/required scope|missing_scope/.test(`${err.summary} ${err.message}`)) {
+        app.client.logout();
+        $("#loginError").textContent = "Dropbox 앱에 파일 권한이 없어요.\n개발자 콘솔 Permissions 탭에서 files.metadata.read / files.content.read / files.content.write를 체크하고 Submit한 뒤 다시 로그인해 주세요.";
+        show("login");
+      } else if (err.status === 401 || err.summary === "not_logged_in" || /invalid_grant/.test(err.summary || "")) {
         app.client.logout();
         $("#loginError").textContent = "로그인이 만료됐어요. 다시 로그인해 주세요.";
         show("login");
