@@ -344,6 +344,11 @@
       $("#newDate").value = log.dateStr || currentYYMMDD();
       $("#newLogType").value = log.type === "툴링" ? "툴링" : "일반증착";
       const ports = new Map(parsed.material_list.map(item => [item.material, item.port]));
+      // Phone logs carry extras the desktop table does not show (author/device metadata, start/end times, end rate, co-dep groups).
+      // Keep them on the rows so saving here does not drop them. Same row filter and order as the parser loop below.
+      const rawRows = await workbookRows(log.handle);
+      state.editingMeta = VTECore.readSheetMeta(rawRows);
+      const extras = VTECore.draftLayersFromRows(rawRows);
       state.layerRows = [];
       for (const [mat, rows] of Object.entries(parsed.layers).flatMap(([mat, rows]) => rows.map(item => [mat, [item]])).sort((a, b) => a[1][0].sequence - b[1][0].sequence)) {
         for (const item of rows) {
@@ -351,7 +356,10 @@
             const pressure = [item.start_pressure || "", item.end_pressure || ""].filter(Boolean).join("/");
             const power = [item.start_power || "", item.end_power || ""].filter(Boolean).join("/");
             const temp = [item.start_temp || "", item.end_temp || ""].filter(Boolean).join("/");
+            const extra = extras[state.layerRows.length] || {};
+            const same = extra.material === mat;
             state.layerRows.push({
+              ...(same ? {started_at: extra.started_at, ended_at: extra.ended_at, end_rate: extra.end_rate, orig_rate: fmt(item.rate), codep: extra.codep, vol: extra.vol} : {}),
               material: mat,
               port: item.port || ports.get(mat) || "",
               mask: item.mask || "1",
@@ -364,7 +372,7 @@
               source_temp_pair: temp,
               pressure_pair: pressure,
               power_pair: power,
-              notes: item.notes || ""
+              notes: same && extra.codep ? extra.notes : item.notes || ""
             });
           }
         }
@@ -487,7 +495,12 @@
       const layers = state.layerRows.filter(r => r.material.trim());
       if (!layers.length) return alert("최소 1개 이상의 레이어를 입력하세요.");
       const isTooling = $("#newLogType").value === "툴링";
-      const sheet = VTECore.buildProcessLogSheet({isTooling, layers, memo: $("#newMemo").value, version: APP_VERSION});
+      // An end rate from the phone only stays while the (start) rate is unchanged here.
+      const rows = VTECore.tagCodepRows(layers.map(r => (r.end_rate && r.rate !== r.orig_rate ? {...r, end_rate: ""} : r)));
+      const meta = state.editingLog && state.editingMeta && Object.keys(state.editingMeta).length
+        ? {...state.editingMeta, "Modified By": "PC v11", "Modified At": new Date().toLocaleString("sv-SE").slice(0, 16)}
+        : null;
+      const sheet = VTECore.buildProcessLogSheet({isTooling, layers: rows, memo: $("#newMemo").value, version: APP_VERSION, meta});
       let dir = state.appDir;
       for (const part of VTECore.processLogFolder(isTooling, yymmdd)) dir = await ensureDir(dir, part);
       let fileHandle;

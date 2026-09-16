@@ -12,7 +12,7 @@
     let tickTimer = null;
     let wakeLock = null;
 
-    const testMode = () => localStorage.getItem("vte.testMode") !== "0";
+    const testMode = () => localStorage.getItem("vte.testMode") === "1";
     const author = () => localStorage.getItem("vte.author") || "";
     const pad = n => String(n).padStart(2, "0");
     const nowText = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;

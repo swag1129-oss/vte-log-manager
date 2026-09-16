@@ -584,16 +584,20 @@
   }
   const str = v => (v === null || v === undefined ? "" : String(v).trim());
   const joinPair = (a, b) => (str(a) || str(b) ? `${str(a)}/${str(b)}` : "");
-  function draftLayersToEditorRows(layers) {
-    const groups = codepGroups(layers);
+  // Editor rows carrying `codep`/`vol` get the file marker and the notes tag (phone drafts and desktop edits of phone logs).
+  function tagCodepRows(rows) {
+    const groups = codepGroups(rows);
     const ids = [...groups.keys()];
-    return layers.map(l => {
-      const row = draftLayerToEditorRow(l);
-      const members = str(l.codep) ? groups.get(l.codep) : null;
+    return rows.map(row => {
+      const members = str(row.codep) ? groups.get(row.codep) : null;
       if (!members || members.length < 2) return row;
-      const tag = `co-dep ${members.map(m => str(m.material)).join(":")} (${fmt(toFloat(l.vol) ?? 0, 2)} vol%)`;
-      return {...row, codep_group: ids.indexOf(l.codep) + 1, codep_vol: fmt(toFloat(l.vol) ?? 0, 2), notes: [tag, row.notes].filter(Boolean).join(" / ")};
+      const vol = fmt(toFloat(row.vol) ?? 0, 2);
+      const tag = `co-dep ${members.map(m => str(m.material)).join(":")} (${vol} vol%)`;
+      return {...row, codep_group: ids.indexOf(row.codep) + 1, codep_vol: vol, notes: [tag, str(row.notes)].filter(Boolean).join(" / ")};
     });
+  }
+  function draftLayersToEditorRows(layers) {
+    return tagCodepRows(layers.map(l => ({...draftLayerToEditorRow(l), codep: str(l.codep), vol: str(l.vol)})));
   }
   function draftLayerToEditorRow(l) {
     return {
@@ -747,7 +751,7 @@
     layeredToolingMeasurements, latestOf, legacyCalibrationMeta, legacyCalibrationMeasurements, emptyCalibrationMeta,
     calibrationMetaFromRows, calibrationMeasurementsFromRows, matchCalibration, noCalibration, comboLabel, mergeComboOption,
     buildFileIndex, buildCalibrationIndex,
-    DRAFT_LAYER_DEFAULTS, draftLayerToEditorRow, draftLayersToEditorRows, codepShare, CODEP_COL, readSheetMeta, draftLayersFromRows, presetToDraftLayers, draftLayersToPresetRows,
+    DRAFT_LAYER_DEFAULTS, draftLayerToEditorRow, draftLayersToEditorRows, tagCodepRows, codepShare, CODEP_COL, readSheetMeta, draftLayersFromRows, presetToDraftLayers, draftLayersToPresetRows,
     buildPresetWorkbookSheets, safeFileName, pathSafe, timeTag,
     setAoa, buildProcessLogSheet, processLogFolder, buildCalibrationSheet, buildStructureSheet, structureRowsFromSheet
   };

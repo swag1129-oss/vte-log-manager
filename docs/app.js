@@ -4,7 +4,7 @@
   const CONFIG = {
     appKey: "5rz8t9p1imu4wa9",
     defaultRoot: "/NEXT LAB/Log/A222/VTE log/VTE_MANAGER",
-    version: "2026-09-16-bbef6457"
+    version: "2026-09-16-e34b1230"
   };
   const LS = {author: "vte.author", root: "vte.root"};
   const {fmt, displayDate, calcRequiredMonitor, calcMonitorRate} = VTECore;
@@ -48,7 +48,7 @@
     // In test mode, test files appear at their normal place with a "테스트" badge. With test mode off they are left out,
     // so test calibrations and presets never feed real runs.
     const prefix = VTEEditor.TEST_PREFIX;
-    const testMode = localStorage.getItem("vte.testMode") !== "0";
+    const testMode = localStorage.getItem("vte.testMode") === "1";
     app.model = VTEData.createModel(files
       .filter(f => testMode || !f.relPath.startsWith(prefix))
       .map(f => (f.relPath.startsWith(prefix) ? {...f, viewPath: f.relPath.slice(prefix.length)} : f)));
@@ -186,7 +186,7 @@
     });
   }
   async function deleteLog(log) {
-    const testMode = localStorage.getItem("vte.testMode") !== "0";
+    const testMode = localStorage.getItem("vte.testMode") === "1";
     if (!log.test && testMode) return alert("테스트 모드에서는 실제 로그 폴더의 파일을 지울 수 없어요.\n설정에서 테스트 모드를 끈 뒤 삭제해 주세요.");
     if (!navigator.onLine) return alert("오프라인이라 지금은 삭제할 수 없어요.");
     const name = log.filename;
@@ -289,7 +289,7 @@
   async function renderSettings() {
     $("#authorEdit").value = localStorage.getItem(LS.author) || "";
     $("#rootInput").value = rootPath();
-    $("#testModeToggle").checked = localStorage.getItem("vte.testMode") !== "0";
+    $("#testModeToggle").checked = localStorage.getItem("vte.testMode") === "1";
     const last = await app.store.get("lastSync");
     $("#cacheInfo").textContent = last
       ? `파일 ${last.files}개 · 마지막 동기화 ${new Date(last.at).toLocaleString("ko-KR")}${last.failed?.length ? ` · 실패 ${last.failed.length}개` : ""}`

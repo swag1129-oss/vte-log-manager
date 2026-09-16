@@ -6,7 +6,7 @@ sync → new log from combo → start/end times → reload keeps the draft → s
 
 1. `npm run build`, copy `docs/` to a scratch folder, add `fixtures/` (a VTE_MANAGER copy) and `fixtures.json`
    (`[{rel, name, hash}]`), and create `e2e.html` = `index.html` with the fake-Dropbox script inserted before `xlsx.full.min.js`.
-   Rebuild `e2e.html` whenever `index.html` changes. The fake `fetch` throws `TypeError("Failed to fetch")` while `window.__offline` is true (offline queue check).
+   The fake script also sets `vte.testMode=1` (the app default is off). Rebuild `e2e.html` whenever `index.html` changes. The fake `fetch` throws `TypeError("Failed to fetch")` while `window.__offline` is true (offline queue check).
 2. Serve the folder on `http://127.0.0.1:8080`.
 3. `node tests/e2e/pwa-flow.mjs` prints a JSON report; any `errors` or `error` entry is a failure.
 
