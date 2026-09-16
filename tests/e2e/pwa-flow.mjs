@@ -44,6 +44,8 @@ try{
   R.panel = await ev(`({toggle:document.querySelector("#structureToggle").textContent, blocks:[...document.querySelectorAll("#structureBody .stack-layer")].map(b=>b.innerText.split(String.fromCharCode(10)).join(" ")), total:document.querySelector(".stack-total").textContent})`);
   await shot("1-editor");
   await click('[data-card="1"] [data-act=start]'); await ev(`window.scrollTo(0,0)`); await sleep(1500); const vp = await send("Page.captureScreenshot",{format:"png"}); fs.writeFileSync("/tmp/pwa-e2e-run/s3-1b-viewport.png", Buffer.from(vp.result.data,"base64"));
+  await ev(`window.scrollTo(0,document.body.scrollHeight)`); await sleep(300); await ev(`document.querySelector('#structureBody [data-jump="0"]').click()`); await sleep(1200);
+  R.jump = await ev(`(()=>{const bar=document.querySelector(".topbar").getBoundingClientRect().bottom, card=document.querySelector('[data-card="0"]').getBoundingClientRect().top; return {bar, card, gap: card-bar}})()`);
   // Leave the editor via the tab bar and come back.
   R.reopen = await ev(`(()=>{const b=document.querySelector('[data-card="0"] .toggle'); b.click(); const afterTitle=!document.querySelector('[data-card="0"]').classList.contains("collapsed"); document.querySelector('[data-card="0"] .toggle').click(); document.querySelector('[data-card="0"] .summary').click(); const afterSummary=!document.querySelector('[data-card="0"]').classList.contains("collapsed"); return {afterTitle, afterSummary};})()`);
   await click('#tabbar [data-tab="logs"]'); await sleep(200);

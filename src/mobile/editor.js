@@ -190,7 +190,7 @@
         totalText: `총 ${fmt(total, 1) || 0} nm (목표)`,
         onItem: i => {
           if (draft.layers[i].collapsed) { draft.layers[i].collapsed = false; persist(); refreshCard(i); }
-          $(`[data-card="${i}"]`)?.scrollIntoView({behavior: "smooth", block: "start"});
+          VTEStack.scrollToEl($(`[data-card="${i}"]`));
         }
       });
     }

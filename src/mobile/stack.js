@@ -40,5 +40,12 @@
       if (block && onJump) onJump(Number(block.dataset.jump));
     };
   }
-  root.VTEStack = {render, bind, colorOf};
+  // scrollIntoView puts the target under the sticky top bar (taller on iOS home-screen apps); scroll to just below it instead.
+  function scrollToEl(el) {
+    if (!el) return;
+    const bars = [document.querySelector(".topbar"), document.querySelector("#updateBanner")]
+      .filter(b => b && !b.hidden).reduce((h, b) => h + b.getBoundingClientRect().height, 0);
+    window.scrollTo({top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - bars - 8), behavior: "smooth"});
+  }
+  root.VTEStack = {render, bind, colorOf, scrollToEl};
 })(typeof globalThis !== "undefined" ? globalThis : this);

@@ -170,7 +170,7 @@
     });
     VTEStack.render(items, {
       totalText: items.length ? `총 ${fmt(total, 1) || 0} nm (${hasTargets ? "목표" : "모니터"})` : "",
-      onItem: i => $(`#logDetail [data-layer="${i}"]`)?.scrollIntoView({behavior: "smooth", block: "start"})
+      onItem: i => VTEStack.scrollToEl($(`#logDetail [data-layer="${i}"]`))
     });
   }
   async function deleteLog(log) {

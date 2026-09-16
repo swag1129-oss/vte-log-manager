@@ -4,7 +4,7 @@
   const CONFIG = {
     appKey: "5rz8t9p1imu4wa9",
     defaultRoot: "/NEXT LAB/Log/A222/VTE log/VTE_MANAGER",
-    version: "2026-09-16-a975696a"
+    version: "2026-09-16-3a6df3ae"
   };
   const LS = {author: "vte.author", root: "vte.root"};
   const {fmt, displayDate, calcRequiredMonitor, calcMonitorRate} = VTECore;
@@ -170,7 +170,7 @@
     });
     VTEStack.render(items, {
       totalText: items.length ? `총 ${fmt(total, 1) || 0} nm (${hasTargets ? "목표" : "모니터"})` : "",
-      onItem: i => $(`#logDetail [data-layer="${i}"]`)?.scrollIntoView({behavior: "smooth", block: "start"})
+      onItem: i => VTEStack.scrollToEl($(`#logDetail [data-layer="${i}"]`))
     });
   }
   async function deleteLog(log) {
