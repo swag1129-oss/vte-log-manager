@@ -129,6 +129,21 @@ try{
   await click("#editLogBtn"); await sleep(400);
   R.codepEdit = await ev(`({cards:document.querySelectorAll(".edit-layer").length, codep:document.querySelectorAll(".edit-layer.codep").length, total:document.querySelector('.edit-layer.codep input[data-k="codep_total"]')?.value, lines:[...document.querySelectorAll(".codep-line")].map(x=>x.innerText.replace(/\\s+/g," ")), started:document.querySelector('.edit-layer.codep [data-act="start"] small')?.textContent})`);
   await click("#discardDraftBtn"); await sleep(300);
+  // Offline save: the log is kept in the upload queue, then uploaded when the connection returns.
+  await click('#tabbar [data-tab="record"]'); await sleep(200);
+  if (await ev(`!document.querySelector("#editor").hidden`)) { await click("#discardDraftBtn"); await sleep(300); }
+  await click("#newGeneralBtn"); await sleep(300);
+  await setVal('input[data-i="0"][data-k="material"]',"HAT-CN_20_O-3","input"); await setVal('input[data-i="0"][data-k="material"]',"HAT-CN_20_O-3","change"); await sleep(200);
+  await setVal('input[data-i="0"][data-k="target_actual"]',"7"); await setVal('input[data-i="0"][data-k="notes"]',"offline e2e");
+  await ev(`window.__offline = true`);
+  const filesBefore = await ev(`Object.keys(__server.files).length`);
+  await click("#uploadBtn"); await sleep(800);
+  R.offlineQueued = await ev(`({banner: !document.querySelector("#queueBanner").hidden, text: document.querySelector("#queueText").textContent, editorHidden: document.querySelector("#editor").hidden, newServerFiles: Object.keys(__server.files).length - ${filesBefore}})`);
+  await click("#queueBtn"); await sleep(200);
+  R.queueSheet = await ev(`[...document.querySelectorAll(".sheet li")].map(li=>li.innerText.replace(/\s+/g," "))`);
+  await ev(`document.querySelector(".sheet [data-close]").click()`);
+  await ev(`window.__offline = false; window.dispatchEvent(new Event("online"))`); await sleep(1500);
+  R.offlineFlushed = await ev(`({banner: !document.querySelector("#queueBanner").hidden, uploaded: Object.keys(__server.files).filter(k=>k.includes("HAT-CN_general")), status: document.querySelector("#syncStatus").textContent})`);
 
   await click('#tabbar [data-tab="cal"]'); await sleep(200);
   await setVal("#matSearch","Ir(ppy)3"); await sleep(200);

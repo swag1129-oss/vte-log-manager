@@ -4,7 +4,7 @@
   const CONFIG = {
     appKey: "5rz8t9p1imu4wa9",
     defaultRoot: "/NEXT LAB/Log/A222/VTE log/VTE_MANAGER",
-    version: "2026-09-16-80b7d418"
+    version: "2026-09-16-7c4243f3"
   };
   const LS = {author: "vte.author", root: "vte.root"};
   const {fmt, displayDate, calcRequiredMonitor, calcMonitorRate} = VTECore;
@@ -67,6 +67,7 @@
       });
       $("#syncError").hidden = true;
       await loadModel();
+      editor.flushQueue();
       if (res.failed.length) status(`동기화 완료 · ${res.failed.length}개 파일 실패`);
       if (app.tab === "logs") renderLogs();
       if (app.tab === "cal") renderMaterials();
@@ -357,6 +358,38 @@
     renderLogs();
     runSync();
   }
+  // ---------- offline upload queue ----------
+  function renderQueue(jobs) {
+    const failed = jobs.filter(j => j.error).length;
+    $("#queueBanner").hidden = !jobs.length;
+    $("#queueText").textContent = `업로드 대기 ${jobs.length}건${failed ? ` · 실패 ${failed}건` : ""}${navigator.onLine ? "" : " (오프라인)"}`;
+  }
+  async function showQueue() {
+    const jobs = await editor.queueJobs();
+    const sheet = document.createElement("div");
+    sheet.className = "sheet-backdrop";
+    sheet.innerHTML = `<div class="sheet" role="dialog">
+      <div class="meta"><b>업로드 대기</b><button data-close>닫기</button></div>
+      <p class="hint">인터넷이 연결되면 자동으로 올려요. 다른 기기에서 먼저 수정된 파일은 덮어쓰지 않고 새 파일로 올려요.</p>
+      <ul class="list">${jobs.map(j => `<li>
+        <div class="name">${esc(j.label)}</div>
+        <div class="hint">${esc(j.queuedAt)} 보관${j.error ? ` · <span class="error">${esc(j.error)}</span>` : ""}</div>
+        <div class="row wrap" style="margin-top:6px">
+          ${j.draft ? `<button data-restore="${esc(j.id)}">초안으로 되돌리기</button>` : ""}
+          <button data-remove="${esc(j.id)}" class="danger">버리기</button>
+        </div></li>`).join("") || '<p class="hint">대기 중인 업로드가 없어요.</p>'}</ul>
+      ${jobs.length ? '<button class="primary wide" data-retry style="margin-top:10px">지금 올리기</button>' : ""}
+    </div>`;
+    sheet.onclick = async e => {
+      const t = e.target;
+      if (t === sheet || t.closest("[data-close]")) return sheet.remove();
+      if (t.dataset.retry !== undefined) { sheet.remove(); if (!navigator.onLine) return alert("아직 오프라인이에요."); return editor.flushQueue(); }
+      if (t.dataset.restore) { sheet.remove(); return editor.restoreJob(t.dataset.restore); }
+      if (t.dataset.remove && confirm("이 업로드를 버릴까요? 폰에 보관된 내용이 사라져요.")) { sheet.remove(); return editor.removeJob(t.dataset.remove); }
+    };
+    document.body.appendChild(sheet);
+  }
+
   // A new app version activates in the background; offer a one-tap reload instead of "open the app twice".
   function registerServiceWorker() {
     if (!("serviceWorker" in navigator) || location.protocol !== "https:") return;
@@ -378,12 +411,18 @@
   async function start() {
     registerServiceWorker();
     VTEStack.bind();
-    editor = VTEEditor.create({app, $, $$, esc, status, show, loadModel, openLog: renderLogDetail, renderCalDetail, setTab, config: CONFIG});
+    editor = VTEEditor.create({app, $, $$, esc, status, show, loadModel, openLog: renderLogDetail, renderCalDetail, setTab, config: CONFIG, renderQueue,
+      onQueueUploaded: () => { if (app.tab === "logs") renderLogs(); if (app.tab === "cal") renderMaterials(); }});
     bind();
     editor.bind();
     makeClient();
     app.store = await VTEStore.createStore();
     await editor.loadDraft();
+    renderQueue(await editor.queueJobs());
+    window.addEventListener("online", async () => { renderQueue(await editor.queueJobs()); editor.flushQueue(); });
+    window.addEventListener("offline", async () => renderQueue(await editor.queueJobs()));
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") editor.flushQueue(); });
+    $("#queueBtn").onclick = showQueue;
     try {
       if (await app.client.completeLogin(location.search)) history.replaceState(null, "", redirectUri());
     } catch (err) {

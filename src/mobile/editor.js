@@ -64,7 +64,8 @@
     }
     // Upload with the app's conflict rules. Returns {relPath, result} or null when the user cancels.
     // `fallbackPath`: where to save a new copy when an in-place update loses a conflict.
-    async function uploadFile(relPath, bytes, {rev = null, what = "파일", fallbackPath = null} = {}) {
+    // `auto`: replaying the offline queue, where nobody is there to answer; a lost update always becomes a new file.
+    async function uploadFile(relPath, bytes, {rev = null, what = "파일", fallbackPath = null, auto = false} = {}) {
       let base = relPath, target = relPath;
       for (let attempt = 0; attempt < 6; attempt++) {
         try {
@@ -74,7 +75,7 @@
         } catch (err) {
           if (err.status !== 409 || !/conflict/.test(err.summary || "")) throw err;
           if (rev) {
-            if (!confirm(`다른 기기에서 먼저 수정된 ${what}예요.\n덮어쓰지 않고 새 파일로 저장할까요?`)) return null;
+            if (!auto && !confirm(`다른 기기에서 먼저 수정된 ${what}예요.\n덮어쓰지 않고 새 파일로 저장할까요?`)) return null;
             rev = null;
             base = target = fallbackPath || relPath.replace(/\.xlsx$/i, "_copy.xlsx");
             continue;
@@ -83,6 +84,57 @@
         }
       }
       throw new Error("같은 이름의 파일이 계속 있어서 저장하지 못했어요.");
+    }
+    // ---------- offline upload queue ----------
+    // A save that cannot reach Dropbox is kept on the phone (bytes + target + rev) and retried when back online.
+    const isNetworkError = e => !navigator.onLine || e instanceof TypeError;
+    const queueJobs = async () => (await app.store.get("uploadQueue")) || [];
+    async function setQueue(jobs) {
+      await app.store.set("uploadQueue", jobs);
+      ctx.renderQueue?.(jobs);
+    }
+    async function enqueue(job) {
+      const jobs = await queueJobs();
+      jobs.push({id: `q${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, queuedAt: nowText(), error: "", ...job});
+      await setQueue(jobs);
+    }
+    let flushing = false;
+    async function flushQueue() {
+      if (flushing || !navigator.onLine || !app.client?.isLoggedIn()) return;
+      flushing = true;
+      const done = [];
+      try {
+        for (const job of await queueJobs()) {
+          try {
+            const saved = await uploadFile(job.relPath, job.bytes, {rev: job.rev, what: job.what, fallbackPath: job.fallbackPath, auto: true});
+            done.push(saved.relPath);
+            await setQueue((await queueJobs()).filter(j => j.id !== job.id));
+          } catch (e) {
+            if (isNetworkError(e)) break;
+            await setQueue((await queueJobs()).map(j => (j.id === job.id ? {...j, error: e.message} : j)));
+          }
+        }
+      } finally {
+        flushing = false;
+      }
+      if (done.length) {
+        await loadModel();
+        status(`대기 중이던 ${done.length}건 업로드 완료`);
+        ctx.onQueueUploaded?.(done);
+      }
+    }
+    async function removeJob(id) {
+      await setQueue((await queueJobs()).filter(j => j.id !== id));
+    }
+    // A queued log goes back to being an editable draft (the queued upload is dropped).
+    async function restoreJob(id) {
+      const job = (await queueJobs()).find(j => j.id === id);
+      if (!job?.draft) return;
+      if (!(await replaceDraftOk())) return;
+      draft = job.draft;
+      await app.store.set("draft", draft);
+      await removeJob(id);
+      ctx.setTab("record");
     }
     function fileRev(realPath) {
       return app.files.get(realPath)?.rev || null;
@@ -470,7 +522,6 @@
         return members[0].codep && members.some(m => String(m.material || "").trim()) && members.some(m => !String(m.material || "").trim() || Core.toFloat(m.vol) === null);
       });
       if (halfFilled) return err("공증착 재료마다 재료명과 부피비(%)를 입력해 주세요.");
-      if (!navigator.onLine) return err("오프라인이라 지금은 저장할 수 없어요. 초안은 폰에 남아 있어요.");
       const isTooling = d.type === "툴링";
       const editing = d.editing;
       const meta = editing
@@ -478,13 +529,22 @@
         : {App: `VTE Log PWA ${config.version}`, Author: author(), Device: deviceName(), "Created At": d.createdAt, Preset: d.preset};
       const sheet = Core.buildProcessLogSheet({isTooling, layers: Core.draftLayersToEditorRows(layers), memo: d.memo, meta, timeTag: Core.timeTag()});
       const newPath = `${savePrefix()}${Core.processLogFolder(isTooling, d.date).join("/")}/${Core.pathSafe(sheet.fileName)}`;
-      // Edit in place only when the file is where saving is allowed and its type/date did not change.
       // Edit in place only in the matching mode (test file in test mode, real file otherwise) and while the file still exists;
       // a file deleted since opening is saved as a new file instead of being silently recreated.
       const inPlace = editing && editing.test === testMode() && editing.origType === d.type && editing.origDate === d.date && Boolean(fileRev(editing.realPath));
+      const job = {kind: "log", label: sheet.fileName, relPath: inPlace ? editing.realPath : newPath, rev: inPlace ? fileRev(editing.realPath) : null,
+        fallbackPath: newPath, what: "로그", bytes: toWorkbook([sheet]), draft: d};
+      const queueDraft = async () => {
+        await enqueue(job);
+        draft = null;
+        await app.store.set("draft", null);
+        render();
+        alert("인터넷이 안 돼서 폰에 보관했어요.\n연결되면 자동으로 Dropbox에 올려요. (위쪽 '업로드 대기'에서 확인)");
+      };
+      if (!navigator.onLine) return queueDraft();
       $("#uploadBtn").disabled = true;
       try {
-        const saved = await uploadFile(inPlace ? editing.realPath : newPath, toWorkbook([sheet]), {rev: inPlace ? fileRev(editing.realPath) : null, what: "로그", fallbackPath: newPath});
+        const saved = await uploadFile(job.relPath, job.bytes, {rev: job.rev, what: "로그", fallbackPath: newPath});
         if (!saved) return;
         draft = null;
         await app.store.set("draft", null);
@@ -494,7 +554,8 @@
         if (editing && !inPlace) alert(`새 파일로 저장했어요.\n원래 파일(${editing.relPath.split("/").pop()})은 그대로 있어요.`);
         if (log) openLog(log); else ctx.setTab("logs");
       } catch (e) {
-        err(`저장 실패: ${e.message}`);
+        if (isNetworkError(e)) await queueDraft();
+        else err(`저장 실패: ${e.message}`);
       } finally {
         $("#uploadBtn").disabled = false;
       }
@@ -510,8 +571,10 @@
       const sheets = Core.buildPresetWorkbookSheets(Core.draftLayersToPresetRows(layers), {
         Name: name, Author: author(), [existing ? "Updated At" : "Created At"]: nowText(), App: `VTE Log PWA ${config.version}`
       });
+      const bytes = toWorkbook(sheets), rev = existing ? existing.rev : null;
       try {
-        const saved = await uploadFile(relPath, toWorkbook(sheets), {rev: existing ? existing.rev : null, what: "프리셋"});
+        if (!navigator.onLine) throw new TypeError("offline");
+        const saved = await uploadFile(relPath, bytes, {rev, what: "프리셋"});
         if (!saved) return;
         draft.preset = name;
         persist();
@@ -519,7 +582,12 @@
         $("#editorPreset").value = name;
         status(`프리셋 저장됨: ${name}`);
       } catch (e) {
-        alert(`프리셋 저장 실패: ${e.message}`);
+        if (!isNetworkError(e)) return alert(`프리셋 저장 실패: ${e.message}`);
+        await enqueue({kind: "preset", label: `프리셋 ${name}`, relPath, rev, fallbackPath: `${savePrefix()}Presets/${name}_copy.xlsx`, what: "프리셋", bytes});
+        draft.preset = name;
+        persist();
+        $("#editorPreset").value = name;
+        alert("인터넷이 안 돼서 프리셋을 폰에 보관했어요. 연결되면 자동으로 올려요.");
       }
     }
     async function deletePreset(p) {
@@ -570,18 +638,22 @@
         const sheet = Core.buildCalibrationSheet({material, date: val("date"), source: val("source"), toolingFactor: val("toolingFactor"), monitor: val("monitor"),
           actual: val("actual"), pressure: val("pressure"), power: val("power"), rate: val("rate"), notes: [val("notes"), `입력: ${author()} (${deviceName()})`].filter(Boolean).join(" / ")});
         if (sheet.error) { box.querySelector("[data-err]").textContent = sheet.error; return; }
-        if (!navigator.onLine) { box.querySelector("[data-err]").textContent = "오프라인이라 저장할 수 없어요."; return; }
         const relPath = `${savePrefix()}${sheet.folder.map(Core.pathSafe).join("/")}/${sheet.fileName}`;
         const existing = app.files.get(relPath);
         if (existing && !confirm(`${sheet.fileName}이(가) 이미 있어요. 덮어쓸까요?`)) return;
+        const bytes = toWorkbook([sheet]), rev = existing ? existing.rev : null;
         try {
-          const saved = await uploadFile(relPath, toWorkbook([sheet]), {rev: existing ? existing.rev : null, what: "calibration"});
+          if (!navigator.onLine) throw new TypeError("offline");
+          const saved = await uploadFile(relPath, bytes, {rev, what: "calibration"});
           if (!saved) return;
           await loadModel();
           status(`실측 저장됨: ${material} ${sheet.fileName}`);
           ctx.renderCalDetail(material);
         } catch (e) {
-          box.querySelector("[data-err]").textContent = `저장 실패: ${e.message}`;
+          if (!isNetworkError(e)) { box.querySelector("[data-err]").textContent = `저장 실패: ${e.message}`; return; }
+          await enqueue({kind: "calibration", label: `${material} ${sheet.fileName}`, relPath, rev, fallbackPath: relPath.replace(/\.xlsx$/i, "_copy.xlsx"), what: "calibration", bytes});
+          box.remove();
+          alert("인터넷이 안 돼서 실측값을 폰에 보관했어요. 연결되면 자동으로 올려요.");
         }
       };
       return box;
@@ -747,7 +819,7 @@
       await app.store.set("draft", null);
       return true;
     }
-    return {bind, render, flush, loadDraft, editLog, calibrationForm, discardIfEditing, hasDraft: () => Boolean(draft), TEST_PREFIX};
+    return {bind, render, flush, loadDraft, editLog, calibrationForm, discardIfEditing, queueJobs, flushQueue, removeJob, restoreJob, hasDraft: () => Boolean(draft), TEST_PREFIX};
   }
 
   root.VTEEditor = {create, TEST_PREFIX};
