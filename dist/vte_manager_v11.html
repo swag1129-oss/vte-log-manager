@@ -879,7 +879,9 @@
       setAoa(aoa, dataRow + 1, 4, ep);
       setAoa(aoa, dataRow + 1, 5, toFloat(endPower) ?? endPower);
       setAoa(aoa, dataRow + 1, 6, toFloat(endTemp) ?? endTemp);
-      setAoa(aoa, dataRow + 1, 7, toFloat(row.rate) ?? row.rate.trim());
+      // Mobile drafts record the rate at the end separately; desktop rows have one rate for both.
+      const endRate = row.end_rate ? row.end_rate : row.rate;
+      setAoa(aoa, dataRow + 1, 7, toFloat(endRate) ?? String(endRate).trim());
       setAoa(aoa, dataRow + 1, 8, req);
       setAoa(aoa, dataRow + 1, 10, ratio ? `Monitor target from ratio ${ratio}` : "");
       if (row.started_at) setAoa(aoa, dataRow, EXTRA_COL, row.started_at);
@@ -899,7 +901,8 @@
   }
   // ---------- mobile drafts ----------
   // A draft layer keeps start/end values separately; the sheet writer takes the desktop editor's "start/end" pairs.
-  const DRAFT_LAYER_DEFAULTS = {material: "", port: "", tooling_factor: "", ratio: "", mask: "1", target_actual: "", monitor: "", rate: "",
+  // start_rate/end_rate are measured; target_rate is the planned actual rate from a preset (reference only).
+  const DRAFT_LAYER_DEFAULTS = {material: "", port: "", tooling_factor: "", ratio: "", mask: "1", target_actual: "", monitor: "", target_rate: "", start_rate: "", end_rate: "",
     start_pressure: "", start_power: "", start_temp: "", started_at: "", end_pressure: "", end_power: "", end_temp: "", ended_at: "",
     measured_actual: "", notes: ""};
   const str = v => (v === null || v === undefined ? "" : String(v).trim());
@@ -908,7 +911,7 @@
     return {
       material: str(l.material), port: str(l.port), mask: str(l.mask) || "1", notes: str(l.notes),
       target_actual: str(l.target_actual), required_monitor: str(l.monitor), measured_actual: str(l.measured_actual),
-      ratio: str(l.ratio), tooling_factor: str(l.tooling_factor), rate: str(l.rate),
+      ratio: str(l.ratio), tooling_factor: str(l.tooling_factor), rate: str(l.start_rate || l.rate), end_rate: str(l.end_rate),
       pressure_pair: joinPair(l.start_pressure, l.end_pressure), power_pair: joinPair(l.start_power, l.end_power),
       source_temp_pair: joinPair(l.start_temp, l.end_temp), started_at: str(l.started_at), ended_at: str(l.ended_at)
     };
@@ -934,7 +937,8 @@
         const paired = norm(start[8]) === "start";
         return {...DRAFT_LAYER_DEFAULTS,
           material, port: str(item.port || ports.get(material)), mask: str(item.mask) || "1", notes: str(item.notes),
-          tooling_factor: str(item.tooling_factor), ratio: item.ratio === null ? "" : String(item.ratio), rate: str(item.rate),
+          tooling_factor: str(item.tooling_factor), ratio: item.ratio === null ? "" : String(item.ratio),
+          start_rate: str(start[7] ?? item.rate), end_rate: paired ? str(end[7]) : "",
           target_actual: str(item.target_actual), monitor: str(item.required_monitor ?? (norm(item.monitor_thickness) === "start" ? "" : item.monitor_thickness)),
           measured_actual: item.actual_thickness === null ? "" : String(item.actual_thickness),
           start_pressure: str(item.start_pressure), end_pressure: str(item.end_pressure),
@@ -956,7 +960,7 @@
       for (const m of used) {
         const share = used.length === 1 ? 1 : (m.vol ?? 0) / total;
         layers.push({...DRAFT_LAYER_DEFAULTS, material: m.mat, port: m.src, tooling_factor: m.tf, mask: str(row.mask) || "1",
-          target_actual: thick === null ? "" : fmt(thick * share, 4), rate: rate === null ? "" : fmt(rate * share, 4),
+          target_actual: thick === null ? "" : fmt(thick * share, 4), target_rate: rate === null ? "" : fmt(rate * share, 4),
           notes: used.length > 1 ? `co-dep ${group} (${fmt(m.vol, 2)} vol%)` : ""});
       }
     }
@@ -964,7 +968,7 @@
   }
   function draftLayersToPresetRows(layers) {
     return layers.filter(l => str(l.material)).map(l => ({...STRUCTURE_DEFAULTS, mode: "single", mat1: str(l.material), src1: str(l.port), tf1: str(l.tooling_factor),
-      vol1: "100", thick: str(l.target_actual), rate: str(l.rate), mask: str(l.mask) || "1"}));
+      vol1: "100", thick: str(l.target_actual), rate: str(l.target_rate || l.start_rate || l.rate), mask: str(l.mask) || "1"}));
   }
   function buildPresetWorkbookSheets(structureRows, info) {
     const main = buildStructureSheet(structureRows, safeSheetTitle(info.name || "Preset"));

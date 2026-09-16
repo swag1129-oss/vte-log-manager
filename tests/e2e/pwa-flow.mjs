@@ -9,7 +9,7 @@ ws.onmessage=e=>{const m=JSON.parse(e.data); if(m.id&&pend.has(m.id)){pend.get(m
   if(m.method==="Runtime.exceptionThrown") errs.push(m.params.exceptionDetails.exception?.description||m.params.exceptionDetails.text);
   if(m.method==="Runtime.consoleAPICalled"&&m.params.type==="error") errs.push("console: "+m.params.args.map(a=>a.value??a.description).join(" "));
   if(m.method==="Page.javascriptDialogOpening"){dialogs.push(m.params.message); send("Page.handleJavaScriptDialog",{accept:true,promptText:promptAnswers.shift()??""});}};
-const ev=async x=>{const r=await send("Runtime.evaluate",{expression:x,awaitPromise:true,returnByValue:true}); if(r.result.exceptionDetails) throw new Error(x.slice(0,80)+" => "+JSON.stringify(r.result.exceptionDetails.exception?.description||r.result.exceptionDetails.text)); return r.result.result.value;};
+const T0=Date.now(); const slow=[]; const ev=async x=>{const t=Date.now(); const r=await send("Runtime.evaluate",{expression:x,awaitPromise:true,returnByValue:true}); if(Date.now()-t>3000) slow.push([Math.round((Date.now()-t)/1000)+"s", x.slice(0,90)]); if(r.result.exceptionDetails) throw new Error(x.slice(0,80)+" => "+JSON.stringify(r.result.exceptionDetails.exception?.description||r.result.exceptionDetails.text)); return r.result.result.value;};
 const shot=async n=>{const r=await send("Page.captureScreenshot",{format:"png",captureBeyondViewport:true}); fs.writeFileSync(`/tmp/pwa-e2e-run/s3-${n}.png`,Buffer.from(r.result.data,"base64"));};
 const waitFor=async(expr,ms=60000)=>{const end=Date.now()+ms; while(Date.now()<end){ if(await ev(expr)) return true; await sleep(300);} throw new Error("timeout: "+expr);};
 const setVal=(sel,v,type="input")=>ev(`(()=>{const el=document.querySelector(${JSON.stringify(sel)}); el.value=${JSON.stringify(v)}; el.dispatchEvent(new Event(${JSON.stringify(type)},{bubbles:true})); return true;})()`);
@@ -27,10 +27,11 @@ try{
   R.afterCombo = await ev(`(()=>{const q=k=>document.querySelector('[data-i="0"][data-k="'+k+'"]').value; return {material:q("material"),port:q("port"),tf:q("tooling_factor"),ratio:q("ratio")};})()`);
   await setVal('input[data-i="0"][data-k="target_actual"]',"5"); await sleep(100);
   R.monitorAuto = await ev(`document.querySelector('input[data-i="0"][data-k="monitor"]').value`);
+  R.hero = await ev(`({value:document.querySelector('[data-hero="0"]').textContent, sub:document.querySelector('[data-hero-sub="0"]').textContent, settingsHidden:document.querySelector('[data-card="0"] .settings').hidden, toggle:document.querySelector('[data-card="0"] .settings-toggle').textContent})`);
   await click('button[data-act="start"][data-i="0"]'); await sleep(100);
-  for (const [k,v] of [["start_pressure","9.6"],["start_power","4.9"],["start_temp","240"],["rate","0.1"]]) await setVal(`input[data-i="0"][data-k="${k}"]`,v);
+  for (const [k,v] of [["start_pressure","9.6"],["start_power","4.9"],["start_temp","240"],["start_rate","0.1"]]) await setVal(`input[data-i="0"][data-k="${k}"]`,v);
   await click('button[data-act="end"][data-i="0"]'); await sleep(100);
-  for (const [k,v] of [["end_pressure","9.1"],["end_power","4.9"],["end_temp","265"],["notes","e2e 첫 층"]]) await setVal(`input[data-i="0"][data-k="${k}"]`,v);
+  for (const [k,v] of [["end_pressure","9.1"],["end_power","4.9"],["end_temp","265"],["end_rate","0.3"],["notes","e2e 첫 층"]]) await setVal(`input[data-i="0"][data-k="${k}"]`,v);
   await click("#addLayerBtn"); await sleep(200);
   await setVal('input[data-i="1"][data-k="material"]',"CBP","input"); await setVal('input[data-i="1"][data-k="material"]',"CBP","change"); await sleep(200);
   R.layer2Auto = await ev(`(()=>{const q=k=>document.querySelector('[data-i="1"][data-k="'+k+'"]').value; return {port:q("port"),tf:q("tooling_factor"),ratio:q("ratio")};})()`);
@@ -111,5 +112,5 @@ try{
   R.calAfter = await ev(`({files:Object.keys(__server.files).filter(k=>k.includes("Calibration")), combos:[...document.querySelectorAll("#calDetail .combo")].map(c=>c.innerText.split("\\n").slice(0,2).join(" "))})`);
   await shot("3-cal");
 }catch(e){R.error=String(e);}
-R.dialogs=dialogs; R.errors=errs;
+R.dialogs=dialogs; R.errors=errs; R.slow=slow; R.totalSec=Math.round((Date.now()-T0)/1000);
 console.log(JSON.stringify(R,null,1)); ws.close(); proc.kill();

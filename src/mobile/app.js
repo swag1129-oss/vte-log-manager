@@ -133,7 +133,7 @@
             ${kv("진공", pair(l.start_pressure, l.end_pressure))}
             ${kv("파워", pair(l.start_power, l.end_power))}
             ${kv("온도", pair(l.start_temp, l.end_temp))}
-            ${kv("레이트", fmt(l.rate))}
+            ${kv("레이트", pair(l.rate, l.end_rate))}
             ${kv("모니터", fmt(l.monitor_thickness))}
             ${kv("실측", fmt(l.actual_thickness))}
             ${kv("목표 실제", fmt(l.target_actual))}

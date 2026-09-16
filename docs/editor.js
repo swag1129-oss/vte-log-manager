@@ -21,7 +21,7 @@
       return /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? "Android" : /Mac/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows" : "Browser";
     };
     const savePrefix = () => (testMode() ? TEST_PREFIX : "");
-    const hasData = l => ["target_actual", "start_pressure", "start_power", "start_temp", "end_pressure", "end_power", "end_temp", "measured_actual", "started_at", "ended_at", "notes"].some(k => String(l[k] || "").trim());
+    const hasData = l => ["target_actual", "start_pressure", "start_power", "start_temp", "start_rate", "end_pressure", "end_power", "end_temp", "end_rate", "measured_actual", "started_at", "ended_at", "notes"].some(k => String(l[k] || "").trim());
 
     function toWorkbook(sheets) {
       const wb = XLSX.utils.book_new();
@@ -61,6 +61,11 @@
     // ---------- draft ----------
     async function loadDraft() {
       draft = (await app.store.get("draft")) || null;
+      // Drafts from before start/end rates: the single rate becomes the start rate.
+      for (const l of draft?.layers || []) {
+        if (l.rate && !l.start_rate) l.start_rate = l.rate;
+        delete l.rate;
+      }
     }
     async function flush() {
       if (!saveTimer) return;
@@ -211,39 +216,64 @@
       }
     }
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") syncRunningState(); });
+    function heroText(l) {
+      return l.monitor ? `${l.monitor}` : "—";
+    }
+    function heroSub(l) {
+      const monitorRate = Core.calcMonitorRate(l.target_rate, l.ratio);
+      return [
+        l.target_actual && `목표 실제 ${l.target_actual} nm`,
+        l.monitor_manual ? "모니터 직접 입력" : (l.ratio && `ratio ${l.ratio}`),
+        l.target_rate && `레이트 목표 ${l.target_rate}${monitorRate !== null ? ` → 모니터 ${fmt(monitorRate, 3)}` : ""} Å/s`
+      ].filter(Boolean).join(" · ");
+    }
+    function settingsLine(l) {
+      return [l.port || "소스?", `TF ${l.tooling_factor || "?"}`, `M${l.mask || "?"}`].join(" · ");
+    }
     function layerCard(l, i, isTooling) {
       const prev = draft.layers[i - 1] || {};
       const placeholder = k => {
-        const from = {start_pressure: "end_pressure", start_power: "end_power", start_temp: "end_temp"}[k];
+        const from = {start_pressure: "end_pressure", start_power: "end_power", start_temp: "end_temp", start_rate: "end_rate"}[k];
         return from && prev[from] ? `placeholder="이전 ${esc(prev[from])}"` : "";
       };
       const input = (k, label, mode = "decimal", extra = "") => `<label>${label}<input data-i="${i}" data-k="${k}" inputmode="${mode}" value="${esc(l[k] || "")}" ${placeholder(k)} ${extra}></label>`;
       const state = l.ended_at ? "done" : l.started_at ? "running" : "";
       const elapsed = l.started_ms ? (l.ended_ms ? `소요 ${elapsedText(l.started_ms, l.ended_ms)}` : `경과 ${elapsedText(l.started_ms)}`) : "";
-      const summary = [l.target_actual && `목표 ${l.target_actual}nm`, l.monitor && `모니터 ${l.monitor}`, l.rate && `${l.rate}Å/s`, l.port, l.mask && `M${l.mask}`].filter(Boolean).join(" · ");
+      const rates = l.start_rate || l.end_rate ? `${l.start_rate || "?"}→${l.end_rate || "?"}Å/s` : "";
+      const summary = [l.monitor && `모니터 ${l.monitor}nm`, rates, l.port, l.mask && `M${l.mask}`].filter(Boolean).join(" · ");
       const ports = ["", ...ALL_PORTS].map(p => `<option ${p === l.port ? "selected" : ""}>${esc(p)}</option>`).join("");
       const masks = ["1", "2", "3"].map(m => `<option ${m === String(l.mask) ? "selected" : ""}>${m}</option>`).join("");
+      const settingsOpen = l.settings_open ?? !String(l.material || "").trim();
       return `<div class="edit-layer ${state} ${l.collapsed ? "collapsed" : ""}" data-card="${i}">
         <div class="head"><b class="toggle" role="button" data-act="toggle" data-i="${i}">${l.collapsed ? "▸" : "▾"} ${i + 1}. ${esc(l.material || "재료 선택")}</b>
           <span class="tools"><button data-act="up" data-i="${i}">↑</button><button data-act="down" data-i="${i}">↓</button><button data-act="remove" data-i="${i}" class="danger">✕</button></span></div>
         <div class="summary">${esc(summary)} <span class="elapsed" data-elapsed="${i}">${elapsed}</span></div>
         <div class="body">
-        <label>재료 (목록에서 고르면 소스·TF·ratio 자동)<input data-i="${i}" data-k="material" list="materialOptions" value="${esc(l.material || "")}" autocomplete="off"></label>
-        <div class="grid3" style="margin-top:6px">
-          <label>소스<select data-i="${i}" data-k="port">${ports}</select></label>
-          ${input("tooling_factor", "TF")}
-          <label>마스크<select data-i="${i}" data-k="mask">${masks}</select></label>
-          ${input("ratio", "Ratio")}
-          ${input("target_actual", "목표 실제(nm)")}
-          ${input("monitor", "모니터(nm)")}
-        </div>
-        <div class="calc-hint" data-hint="${i}">${l.monitor_manual ? "모니터 두께 직접 입력됨" : l.monitor ? "모니터 = 목표 ÷ ratio" : ""}</div>
-        <div class="grid2">${input("rate", "레이트(Å/s)")}${isTooling ? input("measured_actual", "실측 두께(nm)") : "<span></span>"}</div>
-        <div class="phase"><div class="phase-head"><span>시작 <span class="time">${esc(l.started_at || "")}</span></span><button data-act="start" data-i="${i}">${l.started_at ? "시각 다시" : "▶ 시작"}</button></div>
-          <div class="grid3">${input("start_pressure", "압력(×10⁻⁷)", "text")}${input("start_power", "파워")}${input("start_temp", "온도")}</div></div>
-        <div class="phase"><div class="phase-head"><span>끝 <span class="time">${esc(l.ended_at || "")}</span></span><button data-act="end" data-i="${i}">${l.ended_at ? "시각 다시" : "■ 끝"}</button></div>
-          <div class="grid3">${input("end_pressure", "압력(×10⁻⁷)", "text")}${input("end_power", "파워")}${input("end_temp", "온도")}</div></div>
-        <label style="margin-top:6px">메모${`<input data-i="${i}" data-k="notes" value="${esc(l.notes || "")}">`}</label>
+          <div class="hero">
+            <div class="hero-label">모니터 목표</div>
+            <div class="hero-value"><span data-hero="${i}">${esc(heroText(l))}</span><small> nm</small></div>
+            <div class="hero-sub" data-hero-sub="${i}">${esc(heroSub(l))}</div>
+          </div>
+          <button class="settings-toggle" data-act="settings" data-i="${i}">${settingsOpen ? "설정 접기 ▴" : `설정 ✎ ${esc(settingsLine(l))}`}</button>
+          <div class="settings" ${settingsOpen ? "" : "hidden"}>
+            <label>재료 (목록에서 고르면 소스·TF·ratio 자동)<input data-i="${i}" data-k="material" list="materialOptions" value="${esc(l.material || "")}" autocomplete="off"></label>
+            <div class="grid3" style="margin-top:6px">
+              <label>소스<select data-i="${i}" data-k="port">${ports}</select></label>
+              ${input("tooling_factor", "TF")}
+              <label>마스크<select data-i="${i}" data-k="mask">${masks}</select></label>
+              ${input("ratio", "Ratio")}
+              ${input("target_actual", "목표 실제(nm)")}
+              ${input("monitor", "모니터(nm)")}
+            </div>
+            <div class="calc-hint" data-hint="${i}">${l.monitor_manual ? "모니터 두께 직접 입력됨 (지우면 자동 계산)" : l.monitor ? "모니터 = 목표 ÷ ratio" : ""}</div>
+            <div class="grid2">${input("target_rate", "목표 실제 레이트(Å/s)")}<span></span></div>
+          </div>
+          <div class="phase"><div class="phase-head"><span>시작 <span class="time">${esc(l.started_at || "")}</span></span><button data-act="start" data-i="${i}">${l.started_at ? "시각 다시" : "▶ 시작"}</button></div>
+            <div class="grid2 tight">${input("start_pressure", "압력(×10⁻⁷)", "text")}${input("start_rate", "레이트(Å/s)")}${input("start_power", "파워")}${input("start_temp", "온도")}</div></div>
+          <div class="phase"><div class="phase-head"><span>끝 <span class="time">${esc(l.ended_at || "")}</span></span><button data-act="end" data-i="${i}">${l.ended_at ? "시각 다시" : "■ 끝"}</button></div>
+            <div class="grid2 tight">${input("end_pressure", "압력(×10⁻⁷)", "text")}${input("end_rate", "레이트(Å/s)")}${input("end_power", "파워")}${input("end_temp", "온도")}
+              ${isTooling ? input("measured_actual", "실측 두께(nm)") : ""}</div></div>
+          <label style="margin-top:6px">메모${`<input data-i="${i}" data-k="notes" value="${esc(l.notes || "")}">`}</label>
         </div>
       </div>`;
     }
@@ -412,6 +442,11 @@
           const mon = $(`input[data-i="${i}"][data-k="monitor"]`);
           if (mon && !layer.monitor_manual) mon.value = layer.monitor;
         }
+        if (["monitor", "target_actual", "ratio", "target_rate"].includes(k)) {
+          const hero = $(`[data-hero="${i}"]`), sub = $(`[data-hero-sub="${i}"]`);
+          if (hero) hero.textContent = heroText(layer);
+          if (sub) sub.textContent = heroSub(layer);
+        }
         if (k === "monitor" || k === "target_actual" || k === "ratio") {
           const hint = $(`[data-hint="${i}"]`);
           if (hint) hint.textContent = layer.monitor_manual ? "모니터 두께 직접 입력됨 (지우면 자동 계산)" : layer.monitor ? "모니터 = 목표 ÷ ratio" : "";
@@ -441,6 +476,12 @@
         }
         const i = Number(btn.dataset.i), layers = draft.layers;
         const act = btn.dataset.act;
+        if (act === "settings") {
+          const card = layers[i];
+          card.settings_open = !(card.settings_open ?? !String(card.material || "").trim());
+          persist();
+          return refreshCard(i);
+        }
         if (act === "toggle") {
           layers[i].collapsed = !layers[i].collapsed;
           persist();

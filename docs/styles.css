@@ -135,3 +135,12 @@ input, select, textarea { font-size: 16px; }
 .combo-line .muted, .muted { color: var(--muted); font-weight: 400; }
 .combo-line small { color: var(--muted); }
 #logDetail > .card:first-child .meta, #logDetail > .card:first-child h2 { padding-right: 150px; }
+
+.hero { background: var(--blue-soft); border-radius: 10px; padding: 8px 12px; margin: 8px 0 6px; }
+.hero-label { font-size: 12px; color: var(--blue); font-weight: 600; }
+.hero-value { font-size: 34px; font-weight: 800; color: var(--blue); line-height: 1.1; font-variant-numeric: tabular-nums; }
+.hero-value small { font-size: 16px; font-weight: 600; }
+.hero-sub { font-size: 12px; color: var(--muted); min-height: 16px; }
+.settings-toggle { width: 100%; min-height: 36px; padding: 4px 10px; font-size: 13px; color: var(--muted); text-align: left; background: #f8fafc; }
+.settings { border: 1px dashed var(--line); border-radius: 10px; padding: 8px; margin-top: 6px; }
+.grid2.tight { margin: 0; }
