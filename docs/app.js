@@ -1,10 +1,10 @@
-/* VTE Log Manager PWA — stage 2: Dropbox login, offline cache, log viewer, calibration lookup (read-only). */
+/* VTE Log Manager PWA: Dropbox login, offline cache, log viewer, calibration lookup; editor.js adds recording. */
 (function () {
   "use strict";
   const CONFIG = {
     appKey: "5rz8t9p1imu4wa9",
     defaultRoot: "/NEXT LAB/Log/A222/VTE log/VTE_MANAGER",
-    version: "2026-09-16-18d50908"
+    version: "2026-09-16-f04e5847"
   };
   const LS = {author: "vte.author", root: "vte.root"};
   const {fmt, displayDate, calcRequiredMonitor, calcMonitorRate} = VTECore;
@@ -13,7 +13,8 @@
   const $$ = sel => Array.from(document.querySelectorAll(sel));
   const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"}[ch]));
 
-  const app = {client: null, store: null, model: VTEData.createModel([]), tab: "logs", logType: "", logLimit: 100, syncing: false};
+  const app = {client: null, store: null, model: VTEData.createModel([]), files: new Map(), tab: "logs", logType: "", logLimit: 100, syncing: false};
+  let editor = null;
 
   const redirectUri = () => location.origin + location.pathname.replace(/index\.html$/, "");
   const rootPath = () => localStorage.getItem(LS.root) || CONFIG.defaultRoot;
@@ -34,6 +35,7 @@
     if (tab === "logs") renderLogs();
     if (tab === "cal") renderMaterials();
     if (tab === "settings") renderSettings();
+    if (tab === "record") editor.render();
     show(tab);
   }
   function status(text) { $("#syncStatus").textContent = text; }
@@ -41,7 +43,10 @@
   // ---------- data ----------
   async function loadModel() {
     const files = await app.store.allFiles();
-    app.model = VTEData.createModel(files);
+    app.files = new Map(files.map(f => [f.relPath, {rev: f.rev, name: f.name}]));
+    // Files saved in test mode appear at their normal place with a "테스트" badge.
+    const prefix = VTEEditor.TEST_PREFIX;
+    app.model = VTEData.createModel(files.map(f => (f.relPath.startsWith(prefix) ? {...f, viewPath: f.relPath.slice(prefix.length)} : f)));
     const last = await app.store.get("lastSync");
     status(last ? `로그 ${app.model.logs.length}개 · ${new Date(last.at).toLocaleString("ko-KR", {month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit"})} 동기화` : "아직 동기화 전");
   }
@@ -61,6 +66,7 @@
       if (app.tab === "logs") renderLogs();
       if (app.tab === "cal") renderMaterials();
       if (app.tab === "settings") renderSettings();
+      if (app.tab === "record" && !editor.hasDraft()) editor.render();
     } catch (err) {
       if (/required scope|missing_scope/.test(`${err.summary} ${err.message}`)) {
         app.client.logout();
@@ -92,7 +98,7 @@
     const list = $("#logList");
     list.innerHTML = logs.slice(0, app.logLimit).map((log, i) => `
       <li data-i="${i}">
-        <div class="meta"><span>${esc(displayDate(log.dateStr) || "날짜 없음")}</span><span class="badge ${log.type === "툴링" ? "tooling" : ""}">${esc(log.type)}</span></div>
+        <div class="meta"><span>${esc(displayDate(log.dateStr) || "날짜 없음")}</span><span>${log.test ? '<span class="badge test">테스트</span> ' : ""}<span class="badge ${log.type === "툴링" ? "tooling" : ""}">${esc(log.type)}</span></span></div>
         <div class="name">${esc(log.filename.replace(/\.xlsx$/i, ""))}</div>
       </li>`).join("") + (logs.length > app.logLimit ? `<li class="center" data-more="1">더 보기 (${logs.length - app.logLimit}개 남음)</li>` : "");
     list.onclick = e => {
@@ -116,6 +122,8 @@
         <h2>${esc(log.filename.replace(/\.xlsx$/i, ""))}</h2>
         ${parsed.error ? `<p class="error">${esc(parsed.error)}</p>` : ""}
         <div class="chips">${parsed.material_list.map(m => `<span class="chip">${esc(m.material)} · ${esc(m.port)}</span>`).join("")}</div>
+        ${logMetaLine(log)}
+        <div class="row" style="margin-top:8px"><button id="editLogBtn">수정</button>${log.test ? '<span class="badge test">테스트 폴더 파일</span>' : ""}</div>
       </div>
       ${layers.map((l, i) => `
         <div class="layer">
@@ -134,8 +142,15 @@
           </div>
           ${l.notes ? `<div class="notes">${esc(l.notes)}</div>` : ""}
         </div>`).join("") || `<p class="hint">레이어 기록이 없어요.</p>`}
-      <p class="hint">${esc(log.relPath)}</p>`;
+      <p class="hint">${esc(log.realPath || log.relPath)}</p>`;
+    $("#editLogBtn").onclick = () => editor.editLog(log);
     show("log-detail");
+  }
+
+  function logMetaLine(log) {
+    const meta = VTECore.readSheetMeta(app.model.rowsOf(log.relPath) || []);
+    const parts = [meta.Author && `작성 ${meta.Author}`, meta["Created At"], meta["Modified By"] && `수정 ${meta["Modified By"]} ${meta["Modified At"] || ""}`, meta.Preset && `프리셋 ${meta.Preset}`].filter(Boolean);
+    return parts.length ? `<p class="hint">${esc(parts.join(" · "))}</p>` : "";
   }
 
   // ---------- calibration ----------
@@ -159,7 +174,8 @@
     const combos = app.model.comboOptions(material);
     const history = app.model.calibrationHistory(material);
     $("#calDetail").innerHTML = `
-      <div class="card"><h2>${esc(material)}</h2><p class="hint">TF·소스 조합별 최신 실측 ratio예요. 카드를 누르면 모니터 두께를 계산해요.</p></div>
+      <div class="card"><h2>${esc(material)}</h2><p class="hint">TF·소스 조합별 최신 실측 ratio예요. 카드를 누르면 모니터 두께를 계산해요.</p>
+        <button id="addCalBtn">+ 실측 추가</button></div>
       ${combos.map((c, i) => {
         const has = c.ratio !== null && c.ratio !== 0;
         return `<div class="combo" data-i="${i}">
@@ -198,6 +214,12 @@
         };
       });
     });
+    $("#addCalBtn").onclick = () => {
+      const selected = $("#calDetail .combo.selected");
+      const form = editor.calibrationForm(material, selected ? combos[Number(selected.dataset.i)] : combos[0]);
+      $("#addCalBtn").closest(".card").after(form);
+      form.querySelector("input[data-f=monitor]").focus();
+    };
     show("cal-detail");
   }
 
@@ -205,6 +227,7 @@
   async function renderSettings() {
     $("#authorEdit").value = localStorage.getItem(LS.author) || "";
     $("#rootInput").value = rootPath();
+    $("#testModeToggle").checked = localStorage.getItem("vte.testMode") !== "0";
     const last = await app.store.get("lastSync");
     $("#cacheInfo").textContent = last
       ? `파일 ${last.files}개 · 마지막 동기화 ${new Date(last.at).toLocaleString("ko-KR")}${last.failed?.length ? ` · 실패 ${last.failed.length}개` : ""}`
@@ -245,6 +268,11 @@
       app.model = VTEData.createModel([]);
       show("login");
     };
+    $("#testModeToggle").onchange = e => {
+      if (!e.target.checked && !confirm("테스트 모드를 끄면 폰에서 저장하는 파일이 실제 로그 폴더에 생겨요. 끌까요?")) { e.target.checked = true; return; }
+      localStorage.setItem("vte.testMode", e.target.checked ? "1" : "0");
+      status(e.target.checked ? "테스트 폴더에만 저장해요." : "실제 로그 폴더에 저장해요.");
+    };
     $("#syncBtn").onclick = runSync;
     $("#syncStatus").onclick = () => alert(app.lastError ? `마지막 오류\n\n${app.lastError}` : $("#syncStatus").textContent);
     $$("#tabbar button").forEach(b => { b.onclick = () => setTab(b.dataset.tab); });
@@ -269,9 +297,12 @@
   }
   async function start() {
     if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+    editor = VTEEditor.create({app, $, $$, esc, status, show, loadModel, openLog: renderLogDetail, renderCalDetail, setTab, config: CONFIG});
     bind();
+    editor.bind();
     makeClient();
     app.store = await VTEStore.createStore();
+    await editor.loadDraft();
     try {
       if (await app.client.completeLogin(location.search)) history.replaceState(null, "", redirectUri());
     } catch (err) {

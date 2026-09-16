@@ -15,5 +15,7 @@ Deposition log manager for the A222 thermal evaporator (VTE). The desktop app re
 - `writer_equivalence`: v11 saves the same log, calibration, and structure sheets as v10.
 - `dropbox_client`: PKCE login, token refresh, paging, Korean paths, root-folder guard, upload modes (fake Dropbox).
 - `mobile_model`: the PWA's logs/calibration results match the desktop app on real data (`VTE_DATA`, `VTE_SNAPSHOT`).
+- `core_drafts`: phone-recorded logs round-trip through xlsx (meta, start/end times, tooling actuals), the lab's v10 app reads them identically, presets round-trip.
+- `tests/e2e/`: manual headless-Chrome walk-through of recording, editing, conflicts, presets, calibration input.
 - Real lab files are never committed. Tests that need them look for git-ignored files in `tests/fixtures/` and `reference/vte_manager_v10.html`, and skip when they are missing.
 - Full-data check: `VTE_DATA=<VTE_MANAGER folder> node scripts/snapshot.cjs <app.html> out.json`, then `node scripts/compare-snapshots.cjs a.json b.json`.

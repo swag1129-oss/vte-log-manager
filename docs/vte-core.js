@@ -456,7 +456,9 @@
    * ratio, tooling_factor, rate, source_temp_pair, pressure_pair, power_pair, notes}.
    * Returns {aoa, cols, sheetTitle, fileName}.
    */
-  function buildProcessLogSheet({isTooling, layers, memo = "", version = "v11"}) {
+  // Extra columns start at W (index 22): parsers and calibration readers never look there.
+  const EXTRA_COL = 22;
+  function buildProcessLogSheet({isTooling, layers, memo = "", version = "v11", meta = null, timeTag = ""}) {
     const aoa = [];
     setAoa(aoa, 0, 3, "Log Type");
     setAoa(aoa, 0, 4, isTooling ? "Tooling" : "General Deposition");
@@ -486,6 +488,14 @@
       20: "Start Temperature (C)", 21: "End Temperature (C)"
     };
     Object.entries(headers).forEach(([c, v]) => setAoa(aoa, hdrRow, Number(c), v));
+    const hasTimes = layers.some(r => r.started_at || r.ended_at);
+    if (hasTimes) setAoa(aoa, hdrRow, EXTRA_COL, "Time (start row / end row)");
+    if (meta) {
+      Object.entries(meta).filter(([, v]) => v !== null && v !== undefined && v !== "").forEach(([k, v], i) => {
+        setAoa(aoa, 0, EXTRA_COL + i * 2, k);
+        setAoa(aoa, 0, EXTRA_COL + i * 2 + 1, v);
+      });
+    }
     const memoText = String(memo || "").trim();
     let dataRow = hdrRow + 1;
     for (const row of layers) {
@@ -529,6 +539,8 @@
       setAoa(aoa, dataRow + 1, 7, toFloat(row.rate) ?? row.rate.trim());
       setAoa(aoa, dataRow + 1, 8, req);
       setAoa(aoa, dataRow + 1, 10, ratio ? `Monitor target from ratio ${ratio}` : "");
+      if (row.started_at) setAoa(aoa, dataRow, EXTRA_COL, row.started_at);
+      if (row.ended_at) setAoa(aoa, dataRow + 1, EXTRA_COL, row.ended_at);
       dataRow += 3;
     }
     const kind = isTooling ? "tooling" : "general";
@@ -536,12 +548,93 @@
       aoa,
       cols: LOG_COLUMN_WIDTHS,
       sheetTitle: safeSheetTitle(`${isTooling ? "Tooling" : "General"} ${version}`),
-      fileName: layers.map(r => r.material.trim()).join(", ") + `_${kind}_${version}.xlsx`
+      fileName: layers.map(r => r.material.trim()).join(", ") + `_${kind}_${version}${timeTag ? `_${timeTag}` : ""}.xlsx`
     };
   }
   function processLogFolder(isTooling, yymmdd) {
     return [isTooling ? "Process_Tooling" : "Process_General", `20${yymmdd.slice(0, 2)}`, yymmdd];
   }
+  // ---------- mobile drafts ----------
+  // A draft layer keeps start/end values separately; the sheet writer takes the desktop editor's "start/end" pairs.
+  const DRAFT_LAYER_DEFAULTS = {material: "", port: "", tooling_factor: "", ratio: "", mask: "1", target_actual: "", monitor: "", rate: "",
+    start_pressure: "", start_power: "", start_temp: "", started_at: "", end_pressure: "", end_power: "", end_temp: "", ended_at: "",
+    measured_actual: "", notes: ""};
+  const str = v => (v === null || v === undefined ? "" : String(v).trim());
+  const joinPair = (a, b) => (str(a) || str(b) ? `${str(a)}/${str(b)}` : "");
+  function draftLayerToEditorRow(l) {
+    return {
+      material: str(l.material), port: str(l.port), mask: str(l.mask) || "1", notes: str(l.notes),
+      target_actual: str(l.target_actual), required_monitor: str(l.monitor), measured_actual: str(l.measured_actual),
+      ratio: str(l.ratio), tooling_factor: str(l.tooling_factor), rate: str(l.rate),
+      pressure_pair: joinPair(l.start_pressure, l.end_pressure), power_pair: joinPair(l.start_power, l.end_power),
+      source_temp_pair: joinPair(l.start_temp, l.end_temp), started_at: str(l.started_at), ended_at: str(l.ended_at)
+    };
+  }
+  // name=value pairs written across row 1 from column W.
+  function readSheetMeta(rawRows) {
+    const row = (rawRows || [])[0] || [];
+    const meta = {};
+    for (let c = EXTRA_COL; c + 1 < row.length; c += 2) if (row[c] !== null && row[c] !== undefined && row[c] !== "") meta[String(row[c])] = row[c + 1];
+    return meta;
+  }
+  // Editable draft layers from an existing process log (manager layout). `sequence` is the sheet row index.
+  function draftLayersFromRows(rawRows) {
+    const rows = rawRows || [];
+    const parsed = parseProcessRows(rows);
+    const ports = new Map(parsed.material_list.map(m => [m.material, m.port]));
+    return Object.entries(parsed.layers)
+      .flatMap(([material, items]) => items.map(item => ({material, item})))
+      .sort((a, b) => a.item.sequence - b.item.sequence)
+      .filter(({item}) => norm(item.monitor_thickness) === "start" || item.target_actual !== null || item.required_monitor !== null || item.mask)
+      .map(({material, item}) => {
+        const start = rows[item.sequence] || [], end = rows[item.sequence + 1] || [];
+        const paired = norm(start[8]) === "start";
+        return {...DRAFT_LAYER_DEFAULTS,
+          material, port: str(item.port || ports.get(material)), mask: str(item.mask) || "1", notes: str(item.notes),
+          tooling_factor: str(item.tooling_factor), ratio: item.ratio === null ? "" : String(item.ratio), rate: str(item.rate),
+          target_actual: str(item.target_actual), monitor: str(item.required_monitor ?? (norm(item.monitor_thickness) === "start" ? "" : item.monitor_thickness)),
+          measured_actual: item.actual_thickness === null ? "" : String(item.actual_thickness),
+          start_pressure: str(item.start_pressure), end_pressure: str(item.end_pressure),
+          start_power: str(item.start_power), end_power: str(item.end_power),
+          start_temp: str(item.start_temp), end_temp: str(item.end_temp),
+          started_at: str(start[EXTRA_COL]), ended_at: paired ? str(end[EXTRA_COL]) : ""};
+      });
+  }
+  // Presets use the Structure layout. Co-deposition rows become one layer per material with its share of thickness and rate.
+  function presetToDraftLayers(structureRows) {
+    const layers = [];
+    for (const row of structureRows) {
+      const mats = [1, 2, 3].map(n => ({mat: str(row[`mat${n}`]), src: str(row[`src${n}`]), tf: str(row[`tf${n}`]), vol: toFloat(row[`vol${n}`])})).filter(m => m.mat);
+      if (!mats.length) continue;
+      const used = str(row.mode) === "co-dep" ? mats : [{...mats[0], vol: 100}];
+      const total = used.reduce((sum, m) => sum + (m.vol ?? 0), 0) || 100;
+      const thick = toFloat(row.thick), rate = toFloat(row.rate);
+      const group = used.map(m => m.mat).join(":");
+      for (const m of used) {
+        const share = used.length === 1 ? 1 : (m.vol ?? 0) / total;
+        layers.push({...DRAFT_LAYER_DEFAULTS, material: m.mat, port: m.src, tooling_factor: m.tf, mask: str(row.mask) || "1",
+          target_actual: thick === null ? "" : fmt(thick * share, 4), rate: rate === null ? "" : fmt(rate * share, 4),
+          notes: used.length > 1 ? `co-dep ${group} (${fmt(m.vol, 2)} vol%)` : ""});
+      }
+    }
+    return layers;
+  }
+  function draftLayersToPresetRows(layers) {
+    return layers.filter(l => str(l.material)).map(l => ({...STRUCTURE_DEFAULTS, mode: "single", mat1: str(l.material), src1: str(l.port), tf1: str(l.tooling_factor),
+      vol1: "100", thick: str(l.target_actual), rate: str(l.rate), mask: str(l.mask) || "1"}));
+  }
+  function buildPresetWorkbookSheets(structureRows, info) {
+    const main = buildStructureSheet(structureRows, safeSheetTitle(info.name || "Preset"));
+    const infoAoa = Object.entries(info).filter(([, v]) => v !== null && v !== undefined && v !== "").map(([k, v]) => [k, v]);
+    return [main, {aoa: infoAoa, cols: [16, 40], sheetTitle: "Info"}];
+  }
+  function safeFileName(name) {
+    return String(name || "").replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim().slice(0, 80);
+  }
+  function timeTag(d = new Date()) {
+    return `${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+
   // Calibration/<material>/<date>.xlsx. Input values are raw form strings.
   function buildCalibrationSheet(f) {
     const mat = String(f.material || "").trim();
@@ -589,6 +682,8 @@
     layeredToolingMeasurements, latestOf, legacyCalibrationMeta, legacyCalibrationMeasurements, emptyCalibrationMeta,
     calibrationMetaFromRows, calibrationMeasurementsFromRows, matchCalibration, noCalibration, comboLabel, mergeComboOption,
     buildFileIndex, buildCalibrationIndex,
+    DRAFT_LAYER_DEFAULTS, draftLayerToEditorRow, readSheetMeta, draftLayersFromRows, presetToDraftLayers, draftLayersToPresetRows,
+    buildPresetWorkbookSheets, safeFileName, timeTag,
     setAoa, buildProcessLogSheet, processLogFolder, buildCalibrationSheet, buildStructureSheet, structureRowsFromSheet
   };
 });

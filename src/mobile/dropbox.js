@@ -156,7 +156,11 @@
       return res.json();
     }
 
-    return {rootPath: rootDisplay, beginLogin, completeLogin, isLoggedIn, logout, listFiles, download, upload, pathFor, relPathOf};
+    async function remove(relPath, {rev = null} = {}) {
+      return rpc("/files/delete_v2", rev ? {path: pathFor(relPath), parent_rev: rev} : {path: pathFor(relPath)});
+    }
+
+    return {rootPath: rootDisplay, remove, beginLogin, completeLogin, isLoggedIn, logout, listFiles, download, upload, pathFor, relPathOf};
   }
 
   return {createClient, DropboxError, headerJson};

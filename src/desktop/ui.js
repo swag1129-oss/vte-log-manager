@@ -659,6 +659,28 @@
       await calculateStructure();
       $("#structMsg").textContent = `Structure 편집 중: ${handle.name}`;
     }
+    // Presets/<name>.xlsx: same layout as Structures, shared with the mobile app's recording screen.
+    async function savePreset() {
+      if (!state.appDir) return alert("먼저 폴더를 선택하세요.");
+      const rows = state.structureRows.filter(r => String(r.mat1 || "").trim());
+      if (!rows.length) return alert("재료가 입력된 층이 필요합니다.");
+      const name = VTECore.safeFileName(prompt("프리셋 이름") || "");
+      if (!name) return;
+      const dir = await ensureDir(state.appDir, "Presets");
+      let fileHandle, exists = true;
+      try { fileHandle = await dir.getFileHandle(`${name}.xlsx`); } catch { exists = false; fileHandle = await dir.getFileHandle(`${name}.xlsx`, {create: true}); }
+      if (exists && !confirm(`${name}.xlsx 이미 존재. 덮어쓸까요?`)) return;
+      const d = new Date(), pad = n => String(n).padStart(2, "0");
+      const sheets = VTECore.buildPresetWorkbookSheets(rows, {Name: name, [exists ? "Updated At" : "Created At"]: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`, App: `VTE Log Manager ${APP_VERSION} (PC)`});
+      const wb = XLSX.utils.book_new();
+      for (const sheet of sheets) {
+        const ws = XLSX.utils.aoa_to_sheet(sheet.aoa);
+        ws["!cols"] = sheet.cols.map(wch => ({wch}));
+        XLSX.utils.book_append_sheet(wb, ws, sheet.sheetTitle);
+      }
+      await writeWorkbookToHandle(wb, fileHandle);
+      $("#structMsg").textContent = `프리셋 저장됨: Presets/${name}.xlsx`;
+    }
     async function deleteCurrentStructure() {
       if (!state.editingStructure) return alert("삭제할 Structure 파일을 먼저 열거나 저장하세요.");
       if (!confirm(`정말 삭제할까요?\n${state.editingStructure.name}`)) return;
@@ -812,6 +834,7 @@
       $("#openStructBtn").onclick = openStructure;
       $("#saveStructBtn").onclick = () => saveStructure(false);
       $("#saveAsStructBtn").onclick = () => saveStructure(true);
+      $("#savePresetBtn").onclick = savePreset;
       $("#deleteStructBtn").onclick = deleteCurrentStructure;
       $("#calcStructBtn").onclick = calculateStructure;
       $$("[data-close]").forEach(btn => btn.onclick = () => closeModal(btn.dataset.close));

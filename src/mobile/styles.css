@@ -78,3 +78,26 @@ table.hist th { background: #f8fafc; color: var(--muted); font-weight: 600; }
 .tabbar button.active { color: var(--blue); font-weight: 700; }
 .progress { height: 4px; background: #e4e7ec; border-radius: 4px; overflow: hidden; margin: 6px 0; }
 .progress > div { height: 100%; background: var(--blue); width: 0; transition: width .2s; }
+
+label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+button.wide { width: 100%; margin-bottom: 12px; }
+select { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px 8px; min-height: 44px; background: #fff; font: inherit; }
+.switch { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--text); }
+.switch input { width: 22px; min-height: 22px; height: 22px; }
+.edit-layer { background: #fff; border: 1px solid var(--line); border-left: 5px solid var(--blue); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }
+.edit-layer.done { border-left-color: var(--ok); }
+.edit-layer.running { border-left-color: #f79009; }
+.edit-layer .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.edit-layer .head b { font-size: 15px; }
+.edit-layer .tools { display: flex; gap: 4px; }
+.edit-layer .tools button { min-height: 34px; padding: 4px 10px; }
+.phase { border-top: 1px dashed var(--line); margin-top: 8px; padding-top: 8px; }
+.phase-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 13px; font-weight: 600; }
+.phase-head button { min-height: 34px; padding: 4px 12px; }
+.phase-head .time { color: var(--muted); font-weight: 400; }
+.calc-hint { font-size: 12px; color: var(--ok); min-height: 16px; }
+.sticky-actions { position: sticky; bottom: calc(64px + var(--safe-bottom)); z-index: 3; box-shadow: 0 -4px 12px rgba(0,0,0,.06); }
+.badge.test { background: #fef0c7; color: #93370d; }
+.row.wrap { flex-wrap: wrap; }

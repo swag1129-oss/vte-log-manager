@@ -44,7 +44,15 @@
     };
   }
 
-  const LOG_FOLDERS = /^(Process_General|Process_Tooling|Calibration|Structures|Presets)\//;
+  const LOG_FOLDERS = /^(_mobile_test\/)?(Process_General|Process_Tooling|Calibration|Structures|Presets)\//;
+  const readRows = (XLSX, data) => {
+    const wb = XLSX.read(data instanceof Uint8Array ? data : new Uint8Array(data), {type: "array", cellDates: false});
+    return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header: 1, raw: true, defval: null});
+  };
+  // After an upload, cache what was written so the app shows it without a full sync.
+  async function cacheUploaded({store, XLSX, relPath, data, result}) {
+    await store.putFile({relPath, name: relPath.split("/").pop(), rev: result.rev, contentHash: result.content_hash, modified: result.server_modified, rows: readRows(XLSX, data)});
+  }
 
   /*
    * Brings the cache in line with Dropbox. `onProgress({phase, done, total, relPath})`.
@@ -67,8 +75,7 @@
         const f = changed[next++];
         try {
           const {data, rev, contentHash} = await client.download(f.relPath);
-          const wb = XLSX.read(new Uint8Array(data), {type: "array", cellDates: false});
-          const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header: 1, raw: true, defval: null});
+          const rows = readRows(XLSX, data);
           await store.putFile({relPath: f.relPath, name: f.name, rev: rev || f.rev, contentHash: contentHash || f.contentHash, modified: f.modified, rows});
         } catch (err) {
           failed.push({relPath: f.relPath, error: String(err.message || err)});
@@ -83,5 +90,5 @@
     return {files: remote.length, downloaded: changed.length - failed.length, removed: removed.length, failed, at: syncedAt};
   }
 
-  root.VTEStore = {createStore, sync};
+  root.VTEStore = {createStore, sync, cacheUploaded};
 })(typeof globalThis !== "undefined" ? globalThis : this);

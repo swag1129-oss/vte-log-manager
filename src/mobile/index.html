@@ -58,6 +58,50 @@
       <div id="logDetail"></div>
     </section>
 
+    <!-- Record (new/edit log, presets) -->
+    <section class="screen" id="screen-record" hidden>
+      <div id="recordStart">
+        <div class="card">
+          <h2>새 기록</h2>
+          <p class="hint" id="saveTargetHint"></p>
+          <div class="row">
+            <button class="primary" id="newGeneralBtn">일반증착 새 로그</button>
+            <button id="newToolingBtn">툴링 새 로그</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>프리셋에서 시작</h2>
+          <input id="presetSearch" type="search" placeholder="프리셋·Structure 검색">
+          <ul class="list" id="presetList"></ul>
+        </div>
+      </div>
+      <div id="editor" hidden>
+        <div class="card">
+          <div class="meta"><span id="editorTitle"></span><span class="badge none" id="draftState">초안 저장됨</span></div>
+          <div class="segmented" id="editorType">
+            <button data-type="일반증착">일반증착</button>
+            <button data-type="툴링">툴링</button>
+          </div>
+          <div class="grid2">
+            <label>날짜 (YYMMDD)<input id="editorDate" inputmode="numeric" maxlength="6"></label>
+            <label>프리셋<input id="editorPreset" readonly></label>
+          </div>
+          <label>메모 (모든 레이어 Notes에 붙음)<input id="editorMemo"></label>
+        </div>
+        <div id="layerCards"></div>
+        <button class="wide" id="addLayerBtn">+ 레이어 추가</button>
+        <div class="card sticky-actions">
+          <p class="error" id="editorError"></p>
+          <button class="primary wide" id="uploadBtn">Dropbox에 저장</button>
+          <div class="row">
+            <button id="savePresetBtn">프리셋으로 저장</button>
+            <button id="discardDraftBtn" class="danger">초안 버리기</button>
+          </div>
+        </div>
+      </div>
+      <datalist id="materialOptions"></datalist>
+    </section>
+
     <!-- Calibration -->
     <section class="screen" id="screen-cal" hidden>
       <div class="filters">
@@ -78,6 +122,11 @@
           <input id="authorEdit" required>
           <button type="submit">변경</button>
         </form>
+      </div>
+      <div class="card">
+        <h2>저장 위치</h2>
+        <label class="switch"><input type="checkbox" id="testModeToggle"> 테스트 폴더(_mobile_test)에만 저장</label>
+        <p class="hint">켜져 있으면 폰에서 저장·수정·삭제하는 모든 파일이 VTE_MANAGER/_mobile_test/ 안에만 생겨요. 실제 로그 폴더는 건드리지 않아요.</p>
       </div>
       <div class="card">
         <h2>Dropbox 폴더</h2>
@@ -101,6 +150,7 @@
 
   <nav class="tabbar" id="tabbar" hidden>
     <button data-tab="logs" class="active">로그</button>
+    <button data-tab="record">기록</button>
     <button data-tab="cal">Calibration</button>
     <button data-tab="settings">설정</button>
   </nav>
@@ -110,6 +160,7 @@
   <script src="data.js"></script>
   <script src="dropbox.js"></script>
   <script src="store.js"></script>
+  <script src="editor.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
