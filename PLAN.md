@@ -2,7 +2,7 @@
 
 상태: 구현 중 (2026-09-16 사용자 지시). 단계마다 사용자 확인 후 다음 단계 진행.
 - 1단계 완료 2026-09-16: core 분리, PC v11 빌드, v10과 결과 동일 검증 (전체 데이터 스냅샷 IDENTICAL, 쓰기 동등성, 렌더링 DOM 동일). 사용자 확인 완료
-- 2단계 완료 2026-09-17: 읽기 전용 PWA (Dropbox PKCE 로그인, IndexedDB 캐시, 로그 열람, calibration 조회+모니터 두께 계산), GitHub Pages 배포. 실기기 테스트 대기
+- 2단계 완료 2026-09-17: 읽기 전용 PWA (Dropbox PKCE 로그인, IndexedDB 캐시, 로그 열람, calibration 조회+모니터 두께 계산), GitHub Pages 배포. 실기기(폰) 로그인·동기화 확인 완료 2026-09-17 (Dropbox scope 누락은 Submit 후 재로그인으로 해결)
 작성: 2026-09-16
 
 ## 확정된 결정
