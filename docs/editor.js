@@ -219,12 +219,21 @@
     function heroText(l) {
       return l.monitor ? `${l.monitor}` : "—";
     }
+    // Which calibration the ratio came from: the newest measurement on this source/TF with the same ratio.
+    function calibrationDate(l) {
+      const ratio = Core.toFloat(l.ratio);
+      if (!app.model || !l.material || !ratio) return null;
+      const hit = app.model.calibrationHistory(String(l.material).trim()).find(m =>
+        m.ratio && fmt(m.ratio, 6) === fmt(ratio, 6) &&
+        (!l.port || String(m.source || "").trim().toUpperCase() === String(l.port).trim().toUpperCase()) &&
+        (!l.tooling_factor || Core.sameNumeric(m.tooling_factor, l.tooling_factor)));
+      return hit ? Core.displayDate(String(hit.date || hit.file?.dateStr || "")) || "날짜 없음" : "";
+    }
     function heroSub(l) {
-      const monitorRate = Core.calcMonitorRate(l.target_rate, l.ratio);
-      return [
-        l.monitor_manual ? "모니터 직접 입력" : (l.ratio && `ratio ${l.ratio}`),
-        l.target_rate && `레이트 목표 ${l.target_rate}${monitorRate !== null ? ` → 모니터 ${fmt(monitorRate, 3)}` : ""} Å/s`
-      ].filter(Boolean).join(" · ");
+      if (l.monitor_manual) return "모니터 직접 입력";
+      if (!l.ratio) return "";
+      const date = calibrationDate(l);
+      return `ratio ${l.ratio} · ${date === "" ? "ratio 직접 입력" : `calibration ${date}`}`;
     }
     function historyFor(l, limit = 5) {
       if (!app.model || !l.material || !l.port) return [];
