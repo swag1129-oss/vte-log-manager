@@ -736,6 +736,58 @@
     }
   }
 
+  // ---------- indexes (mobile; the desktop builds the same from directory handles) ----------
+  const LOG_ROOTS = {Process_General: "일반증착", Process_Tooling: "툴링"};
+  /*
+   * `files`: [{relPath, name}] with relPath relative to the VTE_MANAGER folder ("Process_General/2026/260904/x.xlsx").
+   * Returns logs shaped like the desktop's state.logs (newest first) and Calibration/<material>/<file>.xlsx entries.
+   */
+  function buildFileIndex(files) {
+    const logs = [], calibrationFiles = [];
+    for (const f of files) {
+      if (!/\.xlsx$/i.test(f.name) || f.name.startsWith(".") || f.name.startsWith("~$")) continue;
+      const parts = f.relPath.split("/");
+      if (parts.some(p => p.startsWith(".") || p.startsWith("~$"))) continue;
+      const root = parts[0];
+      if (LOG_ROOTS[root] && parts.length >= 2) {
+        const dateStr = dateStrFromName(f.name, parts.slice(1).join("/"));
+        logs.push({...f, filename: f.name, type: LOG_ROOTS[root], root, dateStr, dateKey: parseDateKey(dateStr)});
+      } else if (root === "Calibration" && parts.length === 3) {
+        calibrationFiles.push({...f, material: parts[1], dateStr: dateStrFromName(f.name, f.relPath)});
+      }
+    }
+    const byPath = (a, b) => a.relPath.localeCompare(b.relPath);
+    logs.sort((a, b) => ((b.dateKey || 0) - (a.dateKey || 0)) || byPath(a, b));
+    calibrationFiles.sort(byPath);
+    return {logs, calibrationFiles};
+  }
+  /*
+   * Materials and their calibration sources, matching the desktop scan: every Calibration/<material> folder plus every
+   * material listed in a tooling log. `toolingMaterials(log)` returns that log's material_list.
+   */
+  function buildCalibrationIndex(logs, calibrationFiles, toolingMaterials) {
+    const byMaterial = new Map();
+    const names = new Set();
+    for (const f of calibrationFiles) {
+      names.add(f.material);
+      if (!byMaterial.has(f.material)) byMaterial.set(f.material, []);
+      byMaterial.get(f.material).push(f);
+    }
+    for (const log of logs.filter(l => l.type === "툴링")) {
+      for (const item of toolingMaterials(log) || []) {
+        if (!item.material) continue;
+        names.add(item.material);
+        const arr = byMaterial.get(item.material) || [];
+        if (!arr.some(x => x.relPath === log.relPath)) arr.push({...log, material: item.material, dateStr: log.dateStr});
+        byMaterial.set(item.material, arr);
+      }
+    }
+    for (const files of byMaterial.values()) {
+      files.sort((a, b) => ((parseDateKey(b.dateStr) || 0) - (parseDateKey(a.dateStr) || 0)) || a.relPath.localeCompare(b.relPath));
+    }
+    return {materials: [...names].sort((a, b) => a.localeCompare(b, "en", {sensitivity: "base"})), filesByMaterial: byMaterial};
+  }
+
   // ---------- writers ----------
   function setAoa(aoa, r, c, v) {
     while (aoa.length <= r) aoa.push([]);
@@ -878,6 +930,7 @@
     updateMeasurementHeaderMap, rowHasDepositionContext, measurementFromRow, findMeasurementHeader, pickCoValue,
     layeredToolingMeasurements, latestOf, legacyCalibrationMeta, legacyCalibrationMeasurements, emptyCalibrationMeta,
     calibrationMetaFromRows, calibrationMeasurementsFromRows, matchCalibration, noCalibration, comboLabel, mergeComboOption,
+    buildFileIndex, buildCalibrationIndex,
     setAoa, buildProcessLogSheet, processLogFolder, buildCalibrationSheet, buildStructureSheet, structureRowsFromSheet
   };
 });

@@ -1,0 +1,19 @@
+// App shell cache. Dropbox API calls are never cached; log data lives in IndexedDB.
+const CACHE = "vte-shell-__APP_VERSION__";
+const SHELL = __SHELL_FILES__;
+
+self.addEventListener("install", event => {
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
+});
+self.addEventListener("activate", event => {
+  event.waitUntil(caches.keys()
+    .then(keys => Promise.all(keys.filter(k => k.startsWith("vte-shell-") && k !== CACHE).map(k => caches.delete(k))))
+    .then(() => self.clients.claim()));
+});
+self.addEventListener("fetch", event => {
+  const url = new URL(event.request.url);
+  if (event.request.method !== "GET" || url.origin !== self.location.origin) return;
+  // The OAuth redirect lands on index.html with ?code=…; serve the cached shell for any page navigation.
+  const key = event.request.mode === "navigate" ? "./" : event.request;
+  event.respondWith(caches.match(key, {ignoreSearch: true}).then(hit => hit || fetch(event.request)));
+});
