@@ -684,7 +684,7 @@
     return rows.map(r => (r.mode === "co-dep" && !r.mat2 ? {...r, mode: "single", vol1: "100"} : r));
   }
   function buildPresetWorkbookSheets(structureRows, info) {
-    const main = buildStructureSheet(structureRows, safeSheetTitle(info.name || "Preset"));
+    const main = buildStructureSheet(structureRows, safeSheetTitle(info.Name || info.name || "Preset"));
     const infoAoa = Object.entries(info).filter(([, v]) => v !== null && v !== undefined && v !== "").map(([k, v]) => [k, v]);
     return [main, {aoa: infoAoa, cols: [16, 40], sheetTitle: "Info"}];
   }

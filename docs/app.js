@@ -4,7 +4,7 @@
   const CONFIG = {
     appKey: "5rz8t9p1imu4wa9",
     defaultRoot: "/NEXT LAB/Log/A222/VTE log/VTE_MANAGER",
-    version: "2026-09-16-7c4243f3"
+    version: "2026-09-16-bbef6457"
   };
   const LS = {author: "vte.author", root: "vte.root"};
   const {fmt, displayDate, calcRequiredMonitor, calcMonitorRate} = VTECore;
@@ -324,6 +324,10 @@
     };
     $("#resyncBtn").onclick = async () => { await app.store.clear(); await loadModel(); await runSync(); };
     $("#logoutBtn").onclick = async () => {
+      const pending = (await editor.queueJobs()).length;
+      const unsaved = editor.hasDraft() ? "작성 중인 초안" : "";
+      const warn = [pending && `업로드 대기 ${pending}건`, unsaved].filter(Boolean).join(", ");
+      if (warn && !confirm(`${warn}이 아직 Dropbox에 없어요. 로그아웃하면 이 폰에서 지워져요. 그래도 로그아웃할까요?`)) return;
       if (!confirm("로그아웃할까요? 이 기기의 캐시도 지워져요.")) return;
       app.client.logout();
       await app.store.clear();
