@@ -4,7 +4,7 @@
   const CONFIG = {
     appKey: "5rz8t9p1imu4wa9",
     defaultRoot: "/NEXT LAB/Log/A222/VTE log/VTE_MANAGER",
-    version: "2026-09-16-8f2f9133"
+    version: "2026-09-16-89c3a19f"
   };
   const LS = {author: "vte.author", root: "vte.root"};
   const {fmt, displayDate, calcRequiredMonitor, calcMonitorRate} = VTECore;
@@ -70,6 +70,8 @@
       } else {
         status(`동기화 실패: ${err.message}`);
       }
+      app.lastError = `${new Date().toLocaleString("ko-KR")}\n${err.name}: ${err.message}${err.status ? `\nHTTP ${err.status}` : ""}${err.summary ? `\n${err.summary}` : ""}${err.stack ? `\n${String(err.stack).split("\n").slice(0, 4).join("\n")}` : ""}`;
+      console.error(err);
     } finally {
       app.syncing = false;
       $("#syncBtn").disabled = false;
@@ -237,6 +239,7 @@
       show("login");
     };
     $("#syncBtn").onclick = runSync;
+    $("#syncStatus").onclick = () => alert(app.lastError ? `마지막 오류\n\n${app.lastError}` : $("#syncStatus").textContent);
     $$("#tabbar button").forEach(b => { b.onclick = () => setTab(b.dataset.tab); });
     $$("[data-back]").forEach(b => { b.onclick = () => setTab(b.dataset.back); });
     $("#logSearch").oninput = () => { app.logLimit = 100; renderLogs(); };
