@@ -161,12 +161,6 @@
     }
 
     // ---------- structure panel ----------
-    const PALETTE = ["#cfe3ff", "#ffe2b8", "#cdeed6", "#ffd1d1", "#d3efec", "#e6d6f2", "#ffd6e3", "#e8e0cf", "#d9e7b5", "#f7e3a1"];
-    function colorOf(material) {
-      let h = 0;
-      for (const ch of String(material)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-      return PALETTE[h % PALETTE.length];
-    }
     // Consecutive co-dep layers from a preset ("co-dep A:B …" notes, same mask) are drawn as one split block.
     function stackGroups(layers) {
       const groups = [];
@@ -180,21 +174,20 @@
       return groups;
     }
     function renderStructure() {
-      const panel = $("#structurePanel");
-      const collapsed = localStorage.getItem("vte.structureCollapsed") === "1";
-      panel.classList.toggle("collapsed", collapsed);
       const groups = stackGroups(draft.layers);
-      const total = groups.reduce((sum, g) => sum + g.items.reduce((s2, {l}) => s2 + (Core.toFloat(l.target_actual) || 0), 0), 0);
-      $("#structureToggle").textContent = `구조 ${groups.length}층 ${collapsed ? "▾" : "▴"}`;
-      $("#structureBody").innerHTML = `<div class="stack-sub">기판</div>` + groups.map(g => {
-        const thick = g.items.reduce((sum, {l}) => sum + (Core.toFloat(l.target_actual) || 0), 0);
-        const height = Math.round(Math.min(64, Math.max(18, 14 + Math.sqrt(thick) * 5)));
-        const running = g.items.some(({l}) => l.started_at && !l.ended_at), done = g.items.every(({l}) => l.ended_at);
-        const label = ({l}) => `${esc(l.material)}${Core.toFloat(l.target_actual) ? ` ${fmt(Core.toFloat(l.target_actual), 1)}` : ""}`;
-        return `<div class="stack-layer ${running ? "running" : done ? "done" : ""}" data-jump="${g.items[0].i}" style="min-height:${height}px">
-          <div class="parts">${g.items.map(it => `<span class="part" style="background:${colorOf(it.l.material)}">${label(it)}</span>`).join("")}</div>
-          <span class="mask">M${esc(g.mask)}</span></div>`;
-      }).join("") + `<div class="stack-total">총 ${fmt(total, 1) || 0} nm (목표)</div>`;
+      const total = draft.layers.reduce((sum, l) => sum + (String(l.material || "").trim() ? Core.toFloat(l.target_actual) || 0 : 0), 0);
+      VTEStack.render(groups.map(g => ({
+        parts: g.items.map(({l}) => ({material: l.material, thick: Core.toFloat(l.target_actual) || 0, label: Core.toFloat(l.target_actual) ? fmt(Core.toFloat(l.target_actual), 1) : ""})),
+        mask: g.mask,
+        state: g.items.some(({l}) => l.started_at && !l.ended_at) ? "running" : g.items.every(({l}) => l.ended_at) ? "done" : "",
+        jump: g.items[0].i
+      })), {
+        totalText: `총 ${fmt(total, 1) || 0} nm (목표)`,
+        onItem: i => {
+          if (draft.layers[i].collapsed) { draft.layers[i].collapsed = false; persist(); refreshCard(i); }
+          $(`[data-card="${i}"]`)?.scrollIntoView({behavior: "smooth", block: "start"});
+        }
+      });
     }
 
     // ---------- running layer: elapsed time and keeping the screen on ----------
@@ -231,7 +224,7 @@
       const ports = ["", ...ALL_PORTS].map(p => `<option ${p === l.port ? "selected" : ""}>${esc(p)}</option>`).join("");
       const masks = ["1", "2", "3"].map(m => `<option ${m === String(l.mask) ? "selected" : ""}>${m}</option>`).join("");
       return `<div class="edit-layer ${state} ${l.collapsed ? "collapsed" : ""}" data-card="${i}">
-        <div class="head"><b data-act="toggle" data-i="${i}">${l.collapsed ? "▸" : "▾"} ${i + 1}. ${esc(l.material || "재료 선택")}</b>
+        <div class="head"><b class="toggle" role="button" data-act="toggle" data-i="${i}">${l.collapsed ? "▸" : "▾"} ${i + 1}. ${esc(l.material || "재료 선택")}</b>
           <span class="tools"><button data-act="up" data-i="${i}">↑</button><button data-act="down" data-i="${i}">↓</button><button data-act="remove" data-i="${i}" class="danger">✕</button></span></div>
         <div class="summary">${esc(summary)} <span class="elapsed" data-elapsed="${i}">${elapsed}</span></div>
         <div class="body">
@@ -398,17 +391,6 @@
         renderEditor();
         $(`[data-card="${draft.layers.length - 1}"]`)?.scrollIntoView({behavior: "smooth", block: "center"});
       };
-      $("#structureToggle").onclick = () => {
-        localStorage.setItem("vte.structureCollapsed", localStorage.getItem("vte.structureCollapsed") === "1" ? "0" : "1");
-        renderStructure();
-      };
-      $("#structureBody").onclick = e => {
-        const block = e.target.closest("[data-jump]");
-        if (!block) return;
-        const i = Number(block.dataset.jump);
-        if (draft.layers[i].collapsed) { draft.layers[i].collapsed = false; persist(); refreshCard(i); }
-        $(`[data-card="${i}"]`)?.scrollIntoView({behavior: "smooth", block: "start"});
-      };
       $("#uploadBtn").onclick = uploadDraft;
       $("#savePresetBtn").onclick = savePreset;
       $("#discardDraftBtn").onclick = async () => {
@@ -450,8 +432,13 @@
         renderStructure();
       });
       cards.addEventListener("click", async e => {
-        const btn = e.target.closest("button[data-act]");
-        if (!btn) return;
+        let btn = e.target.closest("[data-act]");
+        if (!btn) {
+          // Tapping the title row or summary of a card toggles it too.
+          const zone = e.target.closest(".edit-layer .head, .edit-layer .summary");
+          if (!zone || e.target.closest("button")) return;
+          btn = zone.closest(".edit-layer").querySelector('[data-act="toggle"]');
+        }
         const i = Number(btn.dataset.i), layers = draft.layers;
         const act = btn.dataset.act;
         if (act === "toggle") {

@@ -14,6 +14,7 @@ const files = {
   "src/mobile/data.js": "data.js",
   "src/mobile/dropbox.js": "dropbox.js",
   "src/mobile/store.js": "store.js",
+  "src/mobile/stack.js": "stack.js",
   "src/mobile/editor.js": "editor.js",
   "src/mobile/manifest.webmanifest": "manifest.webmanifest",
   "src/mobile/icons/icon-192.png": "icons/icon-192.png",

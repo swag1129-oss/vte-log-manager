@@ -27,7 +27,7 @@
     const main = ["logs", "log-detail", "record", "cal", "cal-detail", "settings"].includes(screen);
     $("#tabbar").hidden = !main;
     $("#syncBtn").hidden = !main;
-    $("#structurePanel").hidden = !(screen === "record" && editor?.hasDraft());
+    $("#structurePanel").hidden = !((screen === "record" && editor?.hasDraft()) || screen === "log-detail");
     window.scrollTo(0, 0);
   }
   function setTab(tab) {
@@ -124,10 +124,10 @@
         ${parsed.error ? `<p class="error">${esc(parsed.error)}</p>` : ""}
         <div class="chips">${parsed.material_list.map(m => `<span class="chip">${esc(m.material)} · ${esc(m.port)}</span>`).join("")}</div>
         ${logMetaLine(log)}
-        <div class="row" style="margin-top:8px"><button id="editLogBtn">수정</button>${log.test ? '<span class="badge test">테스트 폴더 파일</span>' : ""}</div>
+        <div class="row" style="margin-top:8px"><button id="editLogBtn">수정</button><button id="deleteLogBtn" class="danger">삭제</button>${log.test ? '<span class="badge test">테스트 폴더 파일</span>' : ""}</div>
       </div>
       ${layers.map((l, i) => `
-        <div class="layer">
+        <div class="layer" data-layer="${i}" style="border-left-color:${VTEStack.colorOf(l.material.split(":")[0])}">
           <h3><span>${i + 1}. ${esc(l.material)}</span><span class="badge none">${l.mask ? `Mask ${esc(l.mask)}` : ""}</span></h3>
           <div class="kv">
             ${kv("진공", pair(l.start_pressure, l.end_pressure))}
@@ -145,9 +145,53 @@
         </div>`).join("") || `<p class="hint">레이어 기록이 없어요.</p>`}
       <p class="hint">${esc(log.realPath || log.relPath)}</p>`;
     $("#editLogBtn").onclick = () => editor.editLog(log);
+    $("#deleteLogBtn").onclick = () => deleteLog(log);
+    renderLogStack(layers);
     show("log-detail");
   }
 
+  // Stack drawing for a saved log. Co-deposition layers ("A:B") are split into side-by-side parts.
+  function renderLogStack(layers) {
+    const num = v => VTECore.toFloat(v);
+    const hasTargets = layers.some(l => num(l.target_actual));
+    let total = 0;
+    const items = layers.map((l, i) => {
+      const mats = String(l.material).split(":").map(m => m.trim()).filter(Boolean);
+      const target = String(l.target_actual ?? "").split("/").map(num);
+      const monitor = String(l.required_monitor ?? l.monitor_thickness ?? "").split("/").map(num);
+      const parts = mats.map((material, k) => {
+        const t = target.length === mats.length ? target[k] : (mats.length === 1 ? target[0] : null);
+        const m = monitor.length === mats.length ? monitor[k] : (mats.length === 1 ? monitor[0] : null);
+        const thick = hasTargets ? t : m;
+        total += thick || 0;
+        return {material, thick: thick || 0, label: thick ? fmt(thick, 1) : ""};
+      });
+      return {parts, mask: l.mask ? String(l.mask) : "", state: "", jump: i};
+    });
+    VTEStack.render(items, {
+      totalText: items.length ? `총 ${fmt(total, 1) || 0} nm (${hasTargets ? "목표" : "모니터"})` : "",
+      onItem: i => $(`#logDetail [data-layer="${i}"]`)?.scrollIntoView({behavior: "smooth", block: "start"})
+    });
+  }
+  async function deleteLog(log) {
+    const testMode = localStorage.getItem("vte.testMode") !== "0";
+    if (!log.test && testMode) return alert("테스트 모드에서는 실제 로그 폴더의 파일을 지울 수 없어요.\n설정에서 테스트 모드를 끈 뒤 삭제해 주세요.");
+    if (!navigator.onLine) return alert("오프라인이라 지금은 삭제할 수 없어요.");
+    const name = log.filename;
+    if (!confirm(`이 로그를 삭제할까요?\n\n${name}\n\nDropbox 휴지통에서 복구할 수 있어요.`)) return;
+    if (!log.test && !confirm("실제 로그 폴더의 파일이에요. 정말 삭제할까요?")) return;
+    try {
+      await app.client.remove(log.realPath, {rev: app.files.get(log.realPath)?.rev || null});
+      await app.store.deleteFiles([log.realPath]);
+      await loadModel();
+      status(`삭제됨: ${name}`);
+      setTab("logs");
+    } catch (err) {
+      alert(/conflict|not_found/.test(err.summary || "")
+        ? "다른 기기에서 이미 수정되거나 삭제된 파일이에요. 동기화 후 다시 확인해 주세요."
+        : `삭제 실패: ${err.message}`);
+    }
+  }
   function logMetaLine(log) {
     const meta = VTECore.readSheetMeta(app.model.rowsOf(log.relPath) || []);
     const parts = [meta.Author && `작성 ${meta.Author}`, meta["Created At"], meta["Modified By"] && `수정 ${meta["Modified By"]} ${meta["Modified At"] || ""}`, meta.Preset && `프리셋 ${meta.Preset}`].filter(Boolean);
@@ -159,11 +203,15 @@
     const q = $("#matSearch").value.trim().toLowerCase();
     const mats = app.model.materials.filter(m => !q || m.toLowerCase().includes(q));
     $("#matList").innerHTML = mats.map(mat => {
-      const latest = app.model.latestCalibration(mat);
-      const has = latest.ratio !== null && latest.ratio !== 0;
+      const combos = app.model.comboOptions(mat);
+      const rows = combos.map(c => {
+        const has = c.ratio !== null && c.ratio !== 0;
+        return `<div class="combo-line"><span>TF ${esc(fmt(c.tooling_factor) || "?")} · ${esc(c.source || "소스?")}</span>
+          <span><b class="${has ? "" : "muted"}">${has ? fmt(c.ratio, 4) : "실측 없음"}</b> <small>${esc(displayDate(c.date) || "날짜 없음")}</small></span></div>`;
+      }).join("");
       return `<li data-mat="${esc(mat)}">
-        <div class="meta"><span class="name">${esc(mat)}</span><span class="badge ${has ? "" : "none"}">${has ? `ratio ${fmt(latest.ratio, 4)}` : "실측 없음"}</span></div>
-        <div class="meta"><span>${has ? `${esc(displayDate(latest.date))} · TF ${esc(fmt(latest.tooling_factor))} · ${esc(latest.source || "")}` : ""}</span></div>
+        <div class="name">${esc(mat)}</div>
+        ${rows || '<div class="combo-line"><span class="muted">calibration 기록 없음</span></div>'}
       </li>`;
     }).join("") || `<p class="hint">재료가 없어요. 동기화를 먼저 해주세요.</p>`;
     $("#matList").onclick = e => {
@@ -313,6 +361,7 @@
   }
   async function start() {
     registerServiceWorker();
+    VTEStack.bind();
     editor = VTEEditor.create({app, $, $$, esc, status, show, loadModel, openLog: renderLogDetail, renderCalDetail, setTab, config: CONFIG});
     bind();
     editor.bind();

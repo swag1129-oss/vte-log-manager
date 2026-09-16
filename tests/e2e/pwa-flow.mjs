@@ -43,6 +43,7 @@ try{
   await shot("1-editor");
   await click('[data-card="1"] [data-act=start]'); await ev(`window.scrollTo(0,0)`); await sleep(1500); const vp = await send("Page.captureScreenshot",{format:"png"}); fs.writeFileSync("/tmp/pwa-e2e-run/s3-1b-viewport.png", Buffer.from(vp.result.data,"base64"));
   // Leave the editor via the tab bar and come back.
+  R.reopen = await ev(`(()=>{const b=document.querySelector('[data-card="0"] .toggle'); b.click(); const afterTitle=!document.querySelector('[data-card="0"]').classList.contains("collapsed"); document.querySelector('[data-card="0"] .toggle').click(); document.querySelector('[data-card="0"] .summary').click(); const afterSummary=!document.querySelector('[data-card="0"]').classList.contains("collapsed"); return {afterTitle, afterSummary};})()`);
   await click('#tabbar [data-tab="logs"]'); await sleep(200);
   R.leave = await ev(`({logsVisible:!document.querySelector("#screen-logs").hidden, panelHidden:document.querySelector("#structurePanel").hidden})`);
   await click('#tabbar [data-tab="record"]'); await sleep(200);
@@ -81,6 +82,24 @@ try{
   await click("#discardDraftBtn"); await sleep(300);
   await ev(`document.querySelector('#presetList button[data-act="delete"]').click()`); await sleep(800);
   R.afterDelete = await ev(`({server:Object.keys(__server.files).filter(k=>k.includes("Presets")), deleted:__server.deleted, list:document.querySelectorAll("#presetList li").length})`);
+  // Log viewer stack on an existing multi-material tooling log, then delete the test log.
+  await click('#tabbar [data-tab="logs"]'); await sleep(200);
+  await setVal("#logSearch","PtOEP_100, CBP, Ir(ppy)3, LiF"); await sleep(200);
+  await click("#logList li[data-i]"); await sleep(400);
+  R.oldLogStack = await ev(`({panel:!document.querySelector("#structurePanel").hidden, blocks:document.querySelectorAll("#structureBody .stack-layer").length, first:document.querySelector("#structureBody .stack-layer")?.innerText.split(String.fromCharCode(10)).join(" "), total:document.querySelector(".stack-total")?.textContent})`);
+  await shot("4-old-log-stack");
+  await setVal("#logSearch","HAT-CN, CBP_general_v11"); await click('#tabbar [data-tab="logs"]'); await sleep(200);
+  const before = await ev(`document.querySelectorAll("#logList li[data-i]").length`);
+  await click("#logList li[data-i]"); await sleep(300);
+  await click("#deleteLogBtn"); await sleep(1200);
+  R.deleteLog = {before, after: await ev(`(()=>{const i=document.querySelector("#logSearch"); i.dispatchEvent(new Event("input")); return document.querySelectorAll("#logList li[data-i]").length})()`), deleted: await ev(`__server.deleted`), screenLogs: await ev(`!document.querySelector("#screen-logs").hidden`)};
+  // Real (fixture) log cannot be deleted in test mode.
+  await setVal("#logSearch","PtOEP_100, CBP, Ir(ppy)3, LiF"); await sleep(200); await click("#logList li[data-i]"); await sleep(300);
+  await click("#deleteLogBtn"); await sleep(300);
+  // Calibration list by TF.
+  await click('#tabbar [data-tab="cal"]'); await sleep(200);
+  await setVal("#matSearch","Ir(ppy)3"); await sleep(200);
+  R.matList = await ev(`document.querySelector("#matList li").innerText.split(String.fromCharCode(10)).join(" | ")`);
   // Calibration measurement.
   await click('#tabbar [data-tab="cal"]'); await sleep(200);
   await setVal("#matSearch","Ir(ppy)3"); await sleep(200);
