@@ -21,6 +21,36 @@
       return /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? "Android" : /Mac/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows" : "Browser";
     };
     const savePrefix = () => (testMode() ? TEST_PREFIX : "");
+    // ---------- co-deposition groups ----------
+    // A co-dep card is consecutive layers sharing `codep`; these fields are kept identical across its members.
+    const SHARED_KEYS = ["mask", "codep_total", "started_at", "ended_at", "started_ms", "ended_ms", "start_pressure", "end_pressure", "notes", "collapsed", "settings_open"];
+    function blocks() {
+      const out = [];
+      draft.layers.forEach((l, i) => {
+        const last = out[out.length - 1];
+        if (l.codep && last && draft.layers[last[0]].codep === l.codep) last.push(i); else out.push([i]);
+      });
+      return out;
+    }
+    const blockOf = i => blocks().find(b => b.includes(i)) || [i];
+    function setShared(i, k, v) {
+      for (const j of blockOf(i)) draft.layers[j][k] = v;
+    }
+    function syncCodep(i) {
+      const members = blockOf(i).map(j => draft.layers[j]);
+      if (!members[0].codep) return;
+      for (const m of members) { m.target_actual = Core.codepShare(members, m); recalcMonitor(m); }
+    }
+    // Actual deposition shares from the typed monitor rates (rate × ratio), to catch a drifting doping ratio.
+    function dopingText(idx) {
+      const members = idx.map(j => draft.layers[j]);
+      for (const [key, label] of [["end_rate", "끝"], ["start_rate", "시작"]]) {
+        const actual = members.map(m => (Core.toFloat(m[key]) ?? NaN) * (Core.toFloat(m.ratio) ?? NaN));
+        const sum = actual.reduce((a, b) => a + b, 0);
+        if (actual.every(Number.isFinite) && sum > 0) return `현재 부피비 (${label} 레이트) ${actual.map(a => fmt(a / sum * 100, 1)).join(" : ")}`;
+      }
+      return "";
+    }
     const hasData = l => ["target_actual", "start_pressure", "start_power", "start_temp", "start_rate", "end_pressure", "end_power", "end_temp", "end_rate", "measured_actual", "started_at", "ended_at", "notes"].some(k => String(l[k] || "").trim());
 
     function toWorkbook(sheets) {
@@ -161,20 +191,19 @@
       $("#editorError").textContent = "";
       $("#materialOptions").innerHTML = [...app.model.comboOptions().map(c => c.label), ...app.model.materials]
         .map(v => `<option value="${esc(v)}"></option>`).join("");
-      $("#layerCards").innerHTML = d.layers.map((l, i) => layerCard(l, i, d.type === "툴링")).join("");
+      $("#layerCards").innerHTML = blocks().map((idx, n) => cardHtml(idx, n)).join("");
       renderStructure();
     }
 
     // ---------- structure panel ----------
-    // Consecutive co-dep layers from a preset ("co-dep A:B …" notes, same mask) are drawn as one split block.
+    // A co-dep group is drawn as one split block.
     function stackGroups(layers) {
       const groups = [];
       layers.forEach((l, i) => {
         if (!String(l.material || "").trim()) return;
-        const co = /^co-dep (\S+)/.exec(l.notes || "");
         const last = groups[groups.length - 1];
-        if (co && last && last.co === co[1] && last.mask === String(l.mask) && last.items.length < co[1].split(":").length) last.items.push({l, i});
-        else groups.push({co: co ? co[1] : null, mask: String(l.mask), items: [{l, i}]});
+        if (l.codep && last && last.co === l.codep) last.items.push({l, i});
+        else groups.push({co: l.codep || null, mask: String(l.mask), items: [{l, i}]});
       });
       return groups;
     }
@@ -189,7 +218,7 @@
       })), {
         totalText: `총 ${fmt(total, 1) || 0} nm (목표)`,
         onItem: i => {
-          if (draft.layers[i].collapsed) { draft.layers[i].collapsed = false; persist(); refreshCard(i); }
+          if (draft.layers[i].collapsed) { setShared(i, "collapsed", false); persist(); refreshCard(i); }
           VTEStack.scrollToEl($(`[data-card="${i}"]`));
         }
       });
@@ -261,18 +290,31 @@
     function settingsLine(l) {
       return [l.port || "소스?", `TF ${l.tooling_factor || "?"}`].join(" · ");
     }
-    function layerCard(l, i, isTooling) {
-      const prev = draft.layers[i - 1] || {};
+    function placeholderFor(l, i, k) {
       // Power and temperature depend on the source, so their hints come from the last run of this material on this source.
-      const last = k => {
-        const hit = historyFor(l).find(h => h[k] !== "" && h[k] !== null && h[k] !== undefined);
-        return hit ? `placeholder="지난 ${esc(Core.fmt(hit[k]))}"` : "";
-      };
-      const placeholder = k => {
-        if (k === "start_power" || k === "start_temp") return last(k);
-        const from = {start_pressure: "end_pressure", start_rate: "end_rate"}[k];
-        return from && prev[from] ? `placeholder="이전 ${esc(prev[from])}"` : "";
-      };
+      if (k === "start_power" || k === "start_temp") {
+        const hit = historyFor(l).find(h => Core.toFloat(h[k]) !== null);
+        return hit ? `placeholder="지난 ${esc(fmt(Core.toFloat(hit[k])))}"` : "";
+      }
+      const prev = draft.layers[blockOf(i)[0] - 1] || {};
+      const from = {start_pressure: "end_pressure", start_rate: "end_rate"}[k];
+      return from && prev[from] ? `placeholder="이전 ${esc(prev[from])}"` : "";
+    }
+    const MEASURES = {pressure: ["압력", "text", "×10⁻⁷"], rate: ["레이트", "decimal", "Å/s"], power: ["파워", "decimal", ""], temp: ["온도", "decimal", "°C"]};
+    function measureRow(l, i, k) {
+      const [label, mode, unit] = MEASURES[k];
+      return `
+            <div class="measure-row">
+              ${k === "power" || k === "temp"
+                ? `<button class="measure-label link" data-act="history" data-i="${i}">${label}${unit ? `<small>${unit}</small>` : ""}<small>지난 기록 ›</small></button>`
+                : `<span class="measure-label">${label}${unit ? `<small>${unit}</small>` : ""}</span>`}
+              <input data-i="${i}" data-k="start_${k}" inputmode="${mode}" value="${esc(l[`start_${k}`] || "")}" ${placeholderFor(l, i, `start_${k}`) || 'placeholder="시작"'} aria-label="${label} 시작">
+              <input data-i="${i}" data-k="end_${k}" inputmode="${mode}" value="${esc(l[`end_${k}`] || "")}" placeholder="끝" aria-label="${label} 끝">
+            </div>`;
+    }
+    const cardHtml = (idx, n) => (draft.layers[idx[0]].codep ? codepCard(idx, n, draft.type === "툴링") : layerCard(draft.layers[idx[0]], idx[0], draft.type === "툴링", n));
+    function layerCard(l, i, isTooling, n) {
+      const placeholder = k => placeholderFor(l, i, k);
       const input = (k, label, mode = "decimal", extra = "") => `<label>${label}<input data-i="${i}" data-k="${k}" inputmode="${mode}" value="${esc(l[k] || "")}" ${placeholder(k)} ${extra}></label>`;
       const state = l.ended_at ? "done" : l.started_at ? "running" : "";
       const elapsed = l.started_ms ? (l.ended_ms ? `소요 ${elapsedText(l.started_ms, l.ended_ms)}` : `경과 ${elapsedText(l.started_ms)}`) : "";
@@ -282,7 +324,7 @@
       const masks = ["1", "2", "3"].map(m => `<option value="${m}" ${m === String(l.mask) ? "selected" : ""}>M${m}</option>`).join("");
       const settingsOpen = l.settings_open ?? !String(l.material || "").trim();
       return `<div class="edit-layer ${state} ${l.collapsed ? "collapsed" : ""}" data-card="${i}">
-        <div class="head"><b class="toggle" role="button" data-act="toggle" data-i="${i}">${l.collapsed ? "▸" : "▾"} ${i + 1}. ${l.material ? `<span class="mat">${esc(l.material)}</span>` : "재료 선택"}${l.port ? ` <span class="port">${esc(l.port)}</span>` : ""}</b>
+        <div class="head"><b class="toggle" role="button" data-act="toggle" data-i="${i}">${l.collapsed ? "▸" : "▾"} ${n + 1}. ${l.material ? `<span class="mat">${esc(l.material)}</span>` : "재료 선택"}${l.port ? ` <span class="port">${esc(l.port)}</span>` : ""}</b>
           <select class="mask-select" data-i="${i}" data-k="mask" aria-label="마스크">${masks}</select>
           <span class="tools"><button data-act="up" data-i="${i}">↑</button><button data-act="down" data-i="${i}">↓</button><button data-act="remove" data-i="${i}" class="danger">✕</button></span></div>
         <div class="summary ${elapsed ? "" : "no-elapsed"}"><span class="sum-text">${esc(summary)}</span> <span class="elapsed" data-elapsed="${i}">${elapsed}</span></div>
@@ -313,25 +355,81 @@
               <button data-act="start" data-i="${i}">${l.started_at ? "▶ 시작 ↺" : "▶ 시작"}<small>${esc((l.started_at || "").slice(11))}</small></button>
               <button data-act="end" data-i="${i}">${l.ended_at ? "■ 끝 ↺" : "■ 끝"}<small>${esc((l.ended_at || "").slice(11))}</small></button>
             </div>
-            ${[["pressure", "압력", "text", "×10⁻⁷"], ["rate", "레이트", "decimal", "Å/s"], ["power", "파워", "decimal", ""], ["temp", "온도", "decimal", "°C"]].map(([k, label, mode, unit]) => `
-            <div class="measure-row">
-              ${k === "power" || k === "temp"
-                ? `<button class="measure-label link" data-act="history" data-i="${i}">${label}${unit ? `<small>${unit}</small>` : ""}<small>지난 기록 ›</small></button>`
-                : `<span class="measure-label">${label}${unit ? `<small>${unit}</small>` : ""}</span>`}
-              <input data-i="${i}" data-k="start_${k}" inputmode="${mode}" value="${esc(l[`start_${k}`] || "")}" ${placeholder(`start_${k}`) || 'placeholder="시작"'} aria-label="${label} 시작">
-              <input data-i="${i}" data-k="end_${k}" inputmode="${mode}" value="${esc(l[`end_${k}`] || "")}" placeholder="끝" aria-label="${label} 끝">
-            </div>`).join("")}
+            ${["pressure", "rate", "power", "temp"].map(k => measureRow(l, i, k)).join("")}
             ${isTooling ? `<div class="grid2 tight" style="margin-top:6px">${input("measured_actual", "실측 두께(nm)")}<span></span></div>` : ""}
           </div>
           <label style="margin-top:6px">메모${`<input data-i="${i}" data-k="notes" value="${esc(l.notes || "")}">`}</label>
         </div>
       </div>`;
     }
+    function codepCard(idx, n, isTooling) {
+      const i = idx[0], l = draft.layers[i], members = idx.map(j => [j, draft.layers[j]]);
+      const ports = m => ["", ...ALL_PORTS].map(p => `<option ${p === m.port ? "selected" : ""}>${esc(p)}</option>`).join("");
+      const masks = ["1", "2", "3"].map(m => `<option value="${m}" ${m === String(l.mask) ? "selected" : ""}>M${m}</option>`).join("");
+      const state = l.ended_at ? "done" : l.started_at ? "running" : "";
+      const elapsed = l.started_ms ? (l.ended_ms ? `소요 ${elapsedText(l.started_ms, l.ended_ms)}` : `경과 ${elapsedText(l.started_ms)}`) : "";
+      const summary = members.map(([, m]) => `${m.material || "?"} ${m.monitor || "?"}`).join(" · ") + " nm (모니터)";
+      const settingsOpen = l.settings_open ?? members.some(([, m]) => !String(m.material || "").trim());
+      const field = (j, m, k, label) => `<label>${label}<input data-i="${j}" data-k="${k}" inputmode="decimal" value="${esc(m[k] || "")}"></label>`;
+      return `<div class="edit-layer codep ${state} ${l.collapsed ? "collapsed" : ""}" data-card="${i}">
+        <div class="head"><b class="toggle" role="button" data-act="toggle" data-i="${i}">${l.collapsed ? "▸" : "▾"} ${n + 1}. ${members.map(([, m]) => (m.material ? `<span class="mat">${esc(m.material)}</span>` : "재료?")).join(" : ")}</b>
+          <select class="mask-select" data-i="${i}" data-k="mask" aria-label="마스크">${masks}</select>
+          <span class="tools"><button data-act="up" data-i="${i}">↑</button><button data-act="down" data-i="${i}">↓</button><button data-act="remove" data-i="${i}" class="danger">✕</button></span></div>
+        <div class="summary ${elapsed ? "" : "no-elapsed"}"><span class="sum-text">${esc(summary)}</span> <span class="elapsed" data-elapsed="${i}">${elapsed}</span></div>
+        <div class="body">
+          <div class="hero">
+            <div class="hero-row">
+              <span class="codep-badge">공증착</span>
+              <label class="hero-target"><input data-i="${i}" data-k="codep_total" inputmode="decimal" value="${esc(l.codep_total || "")}" placeholder="합계" aria-label="공증착 전체 목표 두께"><small>nm (목표 합계)</small></label>
+            </div>
+            ${members.map(([j, m]) => `
+            <div class="codep-line">
+              <span class="codep-name"><span class="mat">${esc(m.material || "재료?")}</span> <small>${esc(m.vol || "?")}%</small></span>
+              <span class="codep-actual" data-actual="${j}">${esc(m.target_actual || "—")}</span>
+              <span class="hero-arrow">→</span>
+              <span class="codep-monitor"><span data-hero="${j}">${esc(heroText(m))}</span><small>nm</small></span>
+            </div>
+            <div class="hero-sub" data-hero-sub="${j}">${esc(heroSub(m))}</div>`).join("")}
+          </div>
+          <button class="settings-toggle" data-act="settings" data-i="${i}">${settingsOpen ? "설정 접기 ▴" : `설정 ✎ ${esc(members.map(([, m]) => `${m.port || "소스?"} ${m.vol || "?"}%`).join(" · "))}`}</button>
+          <div class="settings" ${settingsOpen ? "" : "hidden"}>
+            ${members.map(([j, m], k) => `
+            <div class="codep-member">
+              <div class="meta"><b>재료 ${k + 1}</b>${members.length > 2 ? `<button data-act="codep-remove" data-i="${j}" class="danger">빼기</button>` : ""}</div>
+              <label>재료 (목록에서 고르면 소스·TF·ratio 자동)<input data-i="${j}" data-k="material" list="materialOptions" value="${esc(m.material || "")}" autocomplete="off"></label>
+              <div class="grid3" style="margin-top:6px">
+                <label>소스<select data-i="${j}" data-k="port">${ports(m)}</select></label>
+                ${field(j, m, "tooling_factor", "TF")}
+                ${field(j, m, "vol", "부피비(%)")}
+                ${field(j, m, "ratio", "Ratio")}
+                ${field(j, m, "monitor", "모니터(nm)")}
+              </div>
+            </div>`).join("")}
+            ${members.length < 3 ? `<button class="wide" data-act="codep-add" data-i="${i}">+ 재료 추가</button>` : ""}
+          </div>
+          <div class="phase">
+            <div class="measure-head">
+              <span></span>
+              <button data-act="start" data-i="${i}">${l.started_at ? "▶ 시작 ↺" : "▶ 시작"}<small>${esc((l.started_at || "").slice(11))}</small></button>
+              <button data-act="end" data-i="${i}">${l.ended_at ? "■ 끝 ↺" : "■ 끝"}<small>${esc((l.ended_at || "").slice(11))}</small></button>
+            </div>
+            ${measureRow(l, i, "pressure")}
+            ${members.map(([j, m]) => `
+            <div class="codep-sub"><span class="mat">${esc(m.material || "재료?")}</span> <span class="port">${esc(m.port || "")}</span></div>
+            ${["rate", "power", "temp"].map(k => measureRow(m, j, k)).join("")}
+            ${isTooling ? `<div class="grid2 tight" style="margin-top:6px"><label>실측 두께(nm)<input data-i="${j}" data-k="measured_actual" inputmode="decimal" value="${esc(m.measured_actual || "")}"></label><span></span></div>` : ""}`).join("")}
+            <div class="calc-hint" data-dope="${i}">${esc(dopingText(idx))}</div>
+          </div>
+          <label style="margin-top:6px">메모<input data-i="${i}" data-k="notes" value="${esc(l.notes || "")}"></label>
+        </div>
+      </div>`;
+    }
     function refreshCard(i) {
-      const card = $(`[data-card="${i}"]`);
+      const all = blocks(), n = all.findIndex(b => b.includes(i));
+      const card = n < 0 ? null : $(`[data-card="${all[n][0]}"]`);
       if (!card) return renderEditor();
       const tmp = document.createElement("div");
-      tmp.innerHTML = layerCard(draft.layers[i], i, draft.type === "툴링");
+      tmp.innerHTML = cardHtml(all[n], n);
       card.replaceWith(tmp.firstElementChild);
     }
 
@@ -342,13 +440,14 @@
       if (!/^\d{6}$/.test(d.date)) return err("날짜를 YYMMDD 6자리로 입력해 주세요.");
       const layers = d.layers.filter(l => String(l.material || "").trim());
       if (!layers.length) return err("재료가 입력된 레이어가 하나 이상 필요해요.");
+      if (d.layers.some(l => l.codep && (!String(l.material || "").trim() || Core.toFloat(l.vol) === null))) return err("공증착 재료마다 재료명과 부피비(%)를 입력해 주세요.");
       if (!navigator.onLine) return err("오프라인이라 지금은 저장할 수 없어요. 초안은 폰에 남아 있어요.");
       const isTooling = d.type === "툴링";
       const editing = d.editing;
       const meta = editing
         ? {...editing.meta, App: `VTE Log PWA ${config.version}`, "Modified By": author(), "Modified At": nowText(), Device: deviceName(), Preset: d.preset || editing.meta.Preset || ""}
         : {App: `VTE Log PWA ${config.version}`, Author: author(), Device: deviceName(), "Created At": d.createdAt, Preset: d.preset};
-      const sheet = Core.buildProcessLogSheet({isTooling, layers: layers.map(Core.draftLayerToEditorRow), memo: d.memo, meta, timeTag: Core.timeTag()});
+      const sheet = Core.buildProcessLogSheet({isTooling, layers: Core.draftLayersToEditorRows(layers), memo: d.memo, meta, timeTag: Core.timeTag()});
       const newPath = `${savePrefix()}${Core.processLogFolder(isTooling, d.date).join("/")}/${sheet.fileName}`;
       // Edit in place only when the file is where saving is allowed and its type/date did not change.
       const inPlace = editing && (editing.test || !testMode()) && editing.origType === d.type && editing.origDate === d.date;
@@ -471,6 +570,15 @@
         renderEditor();
         $(`[data-card="${draft.layers.length - 1}"]`)?.scrollIntoView({behavior: "smooth", block: "center"});
       };
+      $("#addCodepBtn").onclick = () => {
+        const prev = draft.layers[draft.layers.length - 1];
+        const codep = `g${Date.now().toString(36)}`;
+        const at = draft.layers.length;
+        draft.layers.push(...[0, 1].map(() => ({...Core.DRAFT_LAYER_DEFAULTS, codep, mask: prev?.mask || "1", settings_open: true})));
+        persist();
+        renderEditor();
+        VTEStack.scrollToEl($(`[data-card="${at}"]`));
+      };
       $("#uploadBtn").onclick = uploadDraft;
       $("#savePresetBtn").onclick = savePreset;
       $("#discardDraftBtn").onclick = async () => {
@@ -485,7 +593,22 @@
         if (!k || Number.isNaN(i)) return;
         const layer = draft.layers[i];
         if (k === "material") { layer.material = el.value; persist(); return; }
-        layer[k] = el.value;
+        if (SHARED_KEYS.includes(k)) setShared(i, k, el.value); else layer[k] = el.value;
+        if (layer.codep && (k === "codep_total" || k === "vol" || k === "ratio" || k === "monitor")) {
+          if (k === "monitor") layer.monitor_manual = el.value.trim() !== ""; else syncCodep(i);
+          for (const j of blockOf(i)) {
+            const m = draft.layers[j];
+            const actual = $(`[data-actual="${j}"]`), hero = $(`[data-hero="${j}"]`), sub = $(`[data-hero-sub="${j}"]`), mon = $(`input[data-i="${j}"][data-k="monitor"]`);
+            if (actual) actual.textContent = m.target_actual || "—";
+            if (hero) hero.textContent = heroText(m);
+            if (sub) sub.textContent = heroSub(m);
+            if (mon && !m.monitor_manual && j !== i) mon.value = m.monitor;
+          }
+        }
+        if (layer.codep && /rate$|^ratio$|^vol$/.test(k)) {
+          const dope = $(`[data-dope="${blockOf(i)[0]}"]`);
+          if (dope) dope.textContent = dopingText(blockOf(i));
+        }
         if (k === "monitor") layer.monitor_manual = el.value.trim() !== "";
         if (k === "target_actual" || k === "ratio") {
           recalcMonitor(layer);
@@ -501,7 +624,7 @@
           const hint = $(`[data-hint="${i}"]`);
           if (hint) hint.textContent = layer.monitor_manual ? "모니터 두께 직접 입력됨 (지우면 자동 계산)" : layer.monitor ? "모니터 = 목표 ÷ ratio" : "";
         }
-        if (k === "target_actual") renderStructure();
+        if (k === "target_actual" || k === "codep_total" || k === "vol") renderStructure();
         persist();
       });
       cards.addEventListener("change", e => {
@@ -509,8 +632,9 @@
         if (Number.isNaN(i) || !k) return;
         const layer = draft.layers[i];
         if (k === "material") { applyCombo(layer, el.value.trim()); autofill(layer, {force: true}); }
+        else if (k === "vol" || k === "codep_total") { refreshCard(i); return; }
         else if (k === "port" || k === "tooling_factor") { layer[k] = el.value; autofill(layer, {force: true}); }
-        else if (k === "mask") layer.mask = el.value;
+        else if (k === "mask") setShared(i, "mask", el.value);
         else return;
         persist();
         refreshCard(i);
@@ -527,29 +651,53 @@
         const i = Number(btn.dataset.i), layers = draft.layers;
         const act = btn.dataset.act;
         if (act === "settings") {
-          const card = layers[i];
-          card.settings_open = !(card.settings_open ?? !String(card.material || "").trim());
+          const card = layers[i], idx = blockOf(i);
+          const defaultOpen = idx.some(j => !String(layers[j].material || "").trim());
+          setShared(i, "settings_open", !(card.settings_open ?? defaultOpen));
           persist();
           return refreshCard(i);
         }
         if (act === "history") return showHistory(layers[i]);
         if (act === "toggle") {
-          layers[i].collapsed = !layers[i].collapsed;
+          setShared(i, "collapsed", !layers[i].collapsed);
           persist();
           return refreshCard(i);
+        }
+        if (act === "codep-add") {
+          const idx = blockOf(i), first = layers[idx[0]];
+          const shared = Object.fromEntries(SHARED_KEYS.map(k => [k, first[k]]).filter(([, v]) => v !== undefined));
+          layers.splice(idx[idx.length - 1] + 1, 0, {...Core.DRAFT_LAYER_DEFAULTS, ...shared, codep: first.codep});
+          syncCodep(i);
+          persist();
+          return renderEditor();
+        }
+        if (act === "codep-remove") {
+          if (hasData(layers[i]) && !confirm(`${layers[i].material || "빈 재료"}를 공증착에서 뺄까요?`)) return;
+          const keep = blockOf(i).find(j => j !== i);
+          layers.splice(i, 1);
+          syncCodep(keep > i ? keep - 1 : keep);
+          persist();
+          return renderEditor();
         }
         if (act === "start" || act === "end") {
           const key = act === "start" ? "started_at" : "ended_at";
           if (layers[i][key] && !confirm(`${act === "start" ? "시작" : "끝"} 시각을 지금으로 바꿀까요?`)) return;
-          layers[i][key] = nowText();
-          layers[i][act === "start" ? "started_ms" : "ended_ms"] = Date.now();
-          if (act === "end") layers[i].collapsed = true;
-        } else if (act === "up" && i > 0) [layers[i - 1], layers[i]] = [layers[i], layers[i - 1]];
-        else if (act === "down" && i < layers.length - 1) [layers[i + 1], layers[i]] = [layers[i], layers[i + 1]];
-        else if (act === "remove") {
-          if (hasData(layers[i]) && !confirm(`${i + 1}번 레이어(${layers[i].material || "빈 레이어"})를 지울까요?`)) return;
-          layers.splice(i, 1);
-          if (!layers.length) layers.push({...Core.DRAFT_LAYER_DEFAULTS});
+          setShared(i, key, nowText());
+          setShared(i, act === "start" ? "started_ms" : "ended_ms", Date.now());
+          if (act === "end") setShared(i, "collapsed", true);
+        } else if (act === "up" || act === "down" || act === "remove") {
+          const all = blocks(), n = all.findIndex(b => b.includes(i));
+          if (act === "remove") {
+            const names = all[n].map(j => layers[j].material || "빈 레이어").join(":");
+            if (all[n].some(j => hasData(layers[j])) && !confirm(`${n + 1}번 레이어(${names})를 지울까요?`)) return;
+            all.splice(n, 1);
+          } else {
+            const m = act === "up" ? n - 1 : n + 1;
+            if (m < 0 || m >= all.length) return;
+            [all[n], all[m]] = [all[m], all[n]];
+          }
+          draft.layers = all.flat().map(j => layers[j]);
+          if (!draft.layers.length) draft.layers.push({...Core.DRAFT_LAYER_DEFAULTS});
         } else return;
         persist();
         if (act === "start" || act === "end") { refreshCard(i); renderStructure(); syncRunningState(); } else renderEditor();

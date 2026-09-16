@@ -490,6 +490,7 @@
     Object.entries(headers).forEach(([c, v]) => setAoa(aoa, hdrRow, Number(c), v));
     const hasTimes = layers.some(r => r.started_at || r.ended_at);
     if (hasTimes) setAoa(aoa, hdrRow, EXTRA_COL, "Time (start row / end row)");
+    if (layers.some(r => r.codep_group)) setAoa(aoa, hdrRow, CODEP_COL, "Co-dep (group vol%)");
     if (meta) {
       Object.entries(meta).filter(([, v]) => v !== null && v !== undefined && v !== "").forEach(([k, v], i) => {
         setAoa(aoa, 0, EXTRA_COL + i * 2, k);
@@ -542,6 +543,7 @@
       setAoa(aoa, dataRow + 1, 8, req);
       setAoa(aoa, dataRow + 1, 10, ratio ? `Monitor target from ratio ${ratio}` : "");
       if (row.started_at) setAoa(aoa, dataRow, EXTRA_COL, row.started_at);
+      if (row.codep_group) setAoa(aoa, dataRow, CODEP_COL, `co-dep ${row.codep_group} ${row.codep_vol}`);
       if (row.ended_at) setAoa(aoa, dataRow + 1, EXTRA_COL, row.ended_at);
       dataRow += 3;
     }
@@ -561,9 +563,36 @@
   // start_rate/end_rate are measured; target_rate is the planned actual rate from a preset (reference only).
   const DRAFT_LAYER_DEFAULTS = {material: "", port: "", tooling_factor: "", ratio: "", mask: "1", target_actual: "", monitor: "", target_rate: "", start_rate: "", end_rate: "",
     start_pressure: "", start_power: "", start_temp: "", started_at: "", end_pressure: "", end_power: "", end_temp: "", ended_at: "",
-    measured_actual: "", notes: ""};
+    measured_actual: "", notes: "", codep: "", vol: "", codep_total: ""};
+  // Co-deposition: one layer per material sharing a `codep` id. The file keeps one row pair per material (readable by the desktop app)
+  // plus a "co-dep <group> <vol%>" marker in column X of the start row and a notes tag, so the phone can regroup them.
+  const CODEP_COL = EXTRA_COL + 1;
+  const CODEP_NOTE = /^co-dep \S+ \([\d.]+ vol%\)(?: \/ )?/;
+  function codepGroups(layers) {
+    const groups = new Map();
+    layers.forEach(l => { if (str(l.codep)) (groups.get(l.codep) || groups.set(l.codep, []).get(l.codep)).push(l); });
+    return groups;
+  }
+  // Each member's target thickness is its volume share of the group total.
+  function codepShare(members, member) {
+    const vols = members.map(m => toFloat(m.vol) ?? 0), sum = vols.reduce((a, b) => a + b, 0);
+    const total = toFloat(member.codep_total);
+    if (total === null || !sum) return "";
+    return fmt(total * (toFloat(member.vol) ?? 0) / sum, 4);
+  }
   const str = v => (v === null || v === undefined ? "" : String(v).trim());
   const joinPair = (a, b) => (str(a) || str(b) ? `${str(a)}/${str(b)}` : "");
+  function draftLayersToEditorRows(layers) {
+    const groups = codepGroups(layers);
+    const ids = [...groups.keys()];
+    return layers.map(l => {
+      const row = draftLayerToEditorRow(l);
+      const members = str(l.codep) ? groups.get(l.codep) : null;
+      if (!members || members.length < 2) return row;
+      const tag = `co-dep ${members.map(m => str(m.material)).join(":")} (${fmt(toFloat(l.vol) ?? 0, 2)} vol%)`;
+      return {...row, codep_group: ids.indexOf(l.codep) + 1, codep_vol: fmt(toFloat(l.vol) ?? 0, 2), notes: [tag, row.notes].filter(Boolean).join(" / ")};
+    });
+  }
   function draftLayerToEditorRow(l) {
     return {
       material: str(l.material), port: str(l.port), mask: str(l.mask) || "1", notes: str(l.notes),
@@ -585,15 +614,17 @@
     const rows = rawRows || [];
     const parsed = parseProcessRows(rows);
     const ports = new Map(parsed.material_list.map(m => [m.material, m.port]));
-    return Object.entries(parsed.layers)
+    const layers = Object.entries(parsed.layers)
       .flatMap(([material, items]) => items.map(item => ({material, item})))
       .sort((a, b) => a.item.sequence - b.item.sequence)
       .filter(({item}) => norm(item.monitor_thickness) === "start" || item.target_actual !== null || item.required_monitor !== null || item.mask)
       .map(({material, item}) => {
         const start = rows[item.sequence] || [], end = rows[item.sequence + 1] || [];
         const paired = norm(start[8]) === "start";
+        const co = /^co-dep\s+(\S+)\s+([\d.]+)/.exec(str(start[CODEP_COL]));
         return {...DRAFT_LAYER_DEFAULTS,
-          material, port: str(item.port || ports.get(material)), mask: str(item.mask) || "1", notes: str(item.notes),
+          codep: co ? `f${co[1]}` : "", vol: co ? co[2] : "",
+          material, port: str(item.port || ports.get(material)), mask: str(item.mask) || "1", notes: co ? str(item.notes).replace(CODEP_NOTE, "") : str(item.notes),
           tooling_factor: str(item.tooling_factor), ratio: item.ratio === null ? "" : String(item.ratio),
           start_rate: str(start[7] ?? item.rate), end_rate: paired ? str(end[7]) : "",
           target_actual: str(item.target_actual), monitor: str(item.required_monitor ?? (norm(item.monitor_thickness) === "start" ? "" : item.monitor_thickness)),
@@ -603,29 +634,50 @@
           start_temp: str(item.start_temp), end_temp: str(item.end_temp),
           started_at: str(start[EXTRA_COL]), ended_at: paired ? str(end[EXTRA_COL]) : ""};
       });
+    for (const members of codepGroups(layers).values()) {
+      const total = members.reduce((sum, m) => sum + (toFloat(m.target_actual) ?? 0), 0);
+      members.forEach(m => { m.codep_total = total ? fmt(total, 4) : ""; });
+    }
+    return layers;
   }
   // Presets use the Structure layout. Co-deposition rows become one layer per material with its share of thickness and rate.
   function presetToDraftLayers(structureRows) {
     const layers = [];
-    for (const row of structureRows) {
+    structureRows.forEach((row, rowIndex) => {
       const mats = [1, 2, 3].map(n => ({mat: str(row[`mat${n}`]), src: str(row[`src${n}`]), tf: str(row[`tf${n}`]), vol: toFloat(row[`vol${n}`])})).filter(m => m.mat);
-      if (!mats.length) continue;
+      if (!mats.length) return;
       const used = str(row.mode) === "co-dep" ? mats : [{...mats[0], vol: 100}];
       const total = used.reduce((sum, m) => sum + (m.vol ?? 0), 0) || 100;
       const thick = toFloat(row.thick), rate = toFloat(row.rate);
-      const group = used.map(m => m.mat).join(":");
+      const co = used.length > 1;
       for (const m of used) {
-        const share = used.length === 1 ? 1 : (m.vol ?? 0) / total;
+        const share = co ? (m.vol ?? 0) / total : 1;
         layers.push({...DRAFT_LAYER_DEFAULTS, material: m.mat, port: m.src, tooling_factor: m.tf, mask: str(row.mask) || "1",
           target_actual: thick === null ? "" : fmt(thick * share, 4), target_rate: rate === null ? "" : fmt(rate * share, 4),
-          notes: used.length > 1 ? `co-dep ${group} (${fmt(m.vol, 2)} vol%)` : ""});
+          codep: co ? `p${rowIndex + 1}` : "", vol: co ? fmt(m.vol ?? 0, 2) : "", codep_total: co && thick !== null ? fmt(thick, 4) : ""});
       }
-    }
+    });
     return layers;
   }
   function draftLayersToPresetRows(layers) {
-    return layers.filter(l => str(l.material)).map(l => ({...STRUCTURE_DEFAULTS, mode: "single", mat1: str(l.material), src1: str(l.port), tf1: str(l.tooling_factor),
-      vol1: "100", thick: str(l.target_actual), rate: str(l.target_rate || l.start_rate || l.rate), mask: str(l.mask) || "1"}));
+    const rows = [];
+    let lastCodep = null;
+    for (const l of layers.filter(x => str(x.material))) {
+      const rate = str(l.target_rate || l.start_rate || l.rate);
+      if (str(l.codep) && lastCodep && lastCodep.id === l.codep && lastCodep.n < 3) {
+        const row = lastCodep.row, n = ++lastCodep.n;
+        Object.assign(row, {[`mat${n}`]: str(l.material), [`src${n}`]: str(l.port), [`tf${n}`]: str(l.tooling_factor), [`vol${n}`]: str(l.vol)});
+        const sum = (toFloat(row.rate) ?? 0) + (toFloat(rate) ?? 0);
+        row.rate = sum ? fmt(sum, 4) : row.rate;
+        continue;
+      }
+      const row = {...STRUCTURE_DEFAULTS, mode: str(l.codep) ? "co-dep" : "single", mat1: str(l.material), src1: str(l.port), tf1: str(l.tooling_factor),
+        vol1: str(l.codep) ? str(l.vol) : "100", thick: str(l.codep) ? str(l.codep_total || l.target_actual) : str(l.target_actual), rate, mask: str(l.mask) || "1"};
+      rows.push(row);
+      lastCodep = str(l.codep) ? {id: l.codep, row, n: 1} : null;
+    }
+    // A "group" of one material is just a single layer.
+    return rows.map(r => (r.mode === "co-dep" && !r.mat2 ? {...r, mode: "single", vol1: "100"} : r));
   }
   function buildPresetWorkbookSheets(structureRows, info) {
     const main = buildStructureSheet(structureRows, safeSheetTitle(info.name || "Preset"));
@@ -686,7 +738,7 @@
     layeredToolingMeasurements, latestOf, legacyCalibrationMeta, legacyCalibrationMeasurements, emptyCalibrationMeta,
     calibrationMetaFromRows, calibrationMeasurementsFromRows, matchCalibration, noCalibration, comboLabel, mergeComboOption,
     buildFileIndex, buildCalibrationIndex,
-    DRAFT_LAYER_DEFAULTS, draftLayerToEditorRow, readSheetMeta, draftLayersFromRows, presetToDraftLayers, draftLayersToPresetRows,
+    DRAFT_LAYER_DEFAULTS, draftLayerToEditorRow, draftLayersToEditorRows, codepShare, CODEP_COL, readSheetMeta, draftLayersFromRows, presetToDraftLayers, draftLayersToPresetRows,
     buildPresetWorkbookSheets, safeFileName, timeTag,
     setAoa, buildProcessLogSheet, processLogFolder, buildCalibrationSheet, buildStructureSheet, structureRowsFromSheet
   };

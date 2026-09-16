@@ -171,3 +171,18 @@ input, select, textarea { font-size: 16px; }
 .history-row { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 12px; }
 .history-row span { font-size: 13px; color: var(--muted); }
 .sheet .list li { border: 0; padding: 0; background: none; }
+.add-row { gap: 8px; }
+.add-row button.wide { flex: 1; }
+.codep-badge { font-size: 11px; font-weight: 700; color: #fff; background: var(--blue); border-radius: 6px; padding: 2px 6px; align-self: center; }
+.codep-line { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; margin-top: 4px; color: var(--blue); }
+.codep-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 14px; font-weight: 700; }
+.codep-name .mat, .codep-sub .mat { color: var(--danger); }
+.codep-name small { color: var(--muted); font-weight: 600; }
+.codep-actual { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.codep-monitor { font-size: 21px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.codep-monitor small { font-size: 11px; font-weight: 600; margin-left: 2px; }
+.codep-member { border-top: 1px dashed var(--line); padding-top: 6px; margin-top: 6px; }
+.codep-member .meta { display: flex; justify-content: space-between; align-items: center; }
+.codep-member .meta button { min-height: 30px; padding: 2px 10px; }
+.codep-sub { margin: 8px 0 2px; font-size: 13px; font-weight: 700; }
+.codep-sub .port { color: var(--muted); font-weight: 600; }

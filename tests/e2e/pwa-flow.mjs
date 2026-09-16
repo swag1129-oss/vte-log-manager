@@ -14,7 +14,7 @@ const shot=async n=>{const r=await send("Page.captureScreenshot",{format:"png",c
 const waitFor=async(expr,ms=60000)=>{const end=Date.now()+ms; while(Date.now()<end){ if(await ev(expr)) return true; await sleep(300);} throw new Error("timeout: "+expr);};
 const setVal=(sel,v,type="input")=>ev(`(()=>{const el=document.querySelector(${JSON.stringify(sel)}); el.value=${JSON.stringify(v)}; el.dispatchEvent(new Event(${JSON.stringify(type)},{bubbles:true})); return true;})()`);
 const click=sel=>ev(`(()=>{const el=document.querySelector(${JSON.stringify(sel)}); if(!el) throw new Error("no "+${JSON.stringify(sel)}); el.click(); return true;})()`);
-await send("Runtime.enable"); await send("Page.enable"); await send("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:2,mobile:true});
+await send("Runtime.enable"); await send("Page.enable"); await send("Network.enable"); await send("Network.setCacheDisabled",{cacheDisabled:true}); await send("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:2,mobile:true});
 const R={};
 try{
   await send("Page.navigate",{url:"http://127.0.0.1:8080/e2e.html"});
@@ -106,7 +106,26 @@ try{
   // Real (fixture) log cannot be deleted in test mode.
   await setVal("#logSearch","PtOEP_100, CBP, Ir(ppy)3, LiF"); await sleep(200); await click("#logList li[data-i]"); await sleep(300);
   await click("#deleteLogBtn"); await sleep(300);
-  // Calibration list by TF.
+  // Co-deposition card: shares, monitors, doping from rates, shared start/end, file marker, regroup on edit.
+  await click('#tabbar [data-tab="record"]'); await sleep(200);
+  if (await ev(`!document.querySelector("#editor").hidden`)) { await click("#discardDraftBtn"); await sleep(300); }
+  await click("#newGeneralBtn"); await sleep(300);
+  await click("#addCodepBtn"); await sleep(300);
+  const combo = await ev(`(()=>{const o=[...document.querySelectorAll("#materialOptions option")].map(x=>x.value); return {cbp:o.find(v=>/^CBP_/.test(v)), ir:o.find(v=>/^Ir\\(ppy\\)3_/.test(v))}})()`);
+  for (const [i,v] of [[1,combo.cbp],[2,combo.ir]]) { await setVal(`input[data-i="${i}"][data-k="material"]`,v,"input"); await setVal(`input[data-i="${i}"][data-k="material"]`,v,"change"); await sleep(200); }
+  await setVal('input[data-i="1"][data-k="vol"]',"94"); await setVal('input[data-i="2"][data-k="vol"]',"6");
+  await setVal('input[data-i="1"][data-k="codep_total"]',"30"); await sleep(200);
+  await click('button[data-act="start"][data-i="1"]'); await sleep(100);
+  await setVal('input[data-i="1"][data-k="start_pressure"]',"5.0"); await setVal('input[data-i="1"][data-k="start_rate"]',"0.5"); await setVal('input[data-i="2"][data-k="start_rate"]',"0.1"); await setVal('input[data-i="2"][data-k="start_power"]',"3.1");
+  R.codep = await ev(`(()=>{const c=document.querySelector('.edit-layer.codep'); return {combo:${JSON.stringify(JSON.stringify(combo))}, cards:document.querySelectorAll(".edit-layer").length, title:c.querySelector(".toggle").innerText, lines:[...c.querySelectorAll(".codep-line")].map(x=>x.innerText.replace(/\s+/g," ")), subs:[...c.querySelectorAll(".hero-sub")].map(x=>x.textContent), dope:c.querySelector("[data-dope]").textContent, started:c.querySelector('[data-act="start"] small').textContent, stack:[...document.querySelectorAll("#structureBody .stack-layer")].map(b=>b.innerText.split(String.fromCharCode(10)).join(" "))}})()`);
+  await shot("5-codep");
+  await click('button[data-act="end"][data-i="1"]'); await sleep(100);
+  await click("#uploadBtn"); await sleep(1500);
+  R.codepSaved = await ev(`(()=>{const k=Object.keys(__server.files).find(k=>k.includes("CBP, Ir(ppy)3_general")); if(!k) return {k:null}; const wb=XLSX.read(__server.files[k].data,{type:"base64"}); const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:null}); const starts=rows.filter(r=>r[8]==="Start"); return {k, marks:starts.map(r=>[r[3],r[23],r[18],r[4],r[10],r[22]]), stack:[...document.querySelectorAll("#structureBody .stack-layer")].map(b=>b.innerText.split(String.fromCharCode(10)).join(" "))}})()`);
+  await click("#editLogBtn"); await sleep(400);
+  R.codepEdit = await ev(`({cards:document.querySelectorAll(".edit-layer").length, codep:document.querySelectorAll(".edit-layer.codep").length, total:document.querySelector('.edit-layer.codep input[data-k="codep_total"]')?.value, lines:[...document.querySelectorAll(".codep-line")].map(x=>x.innerText.replace(/\\s+/g," ")), started:document.querySelector('.edit-layer.codep [data-act="start"] small')?.textContent})`);
+  await click("#discardDraftBtn"); await sleep(300);
+
   await click('#tabbar [data-tab="cal"]'); await sleep(200);
   await setVal("#matSearch","Ir(ppy)3"); await sleep(200);
   R.matList = await ev(`document.querySelector("#matList li").innerText.split(String.fromCharCode(10)).join(" | ")`);

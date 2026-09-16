@@ -166,9 +166,16 @@
         total += thick || 0;
         return {material, thick: thick || 0, label: thick ? fmt(thick, 1) : ""};
       });
-      return {parts, mask: l.mask ? String(l.mask) : "", state: "", jump: i};
+      return {parts, mask: l.mask ? String(l.mask) : "", state: "", jump: i, co: /^co-dep (\S+) \(/.exec(l.notes || "")?.[1] || null};
     });
-    VTEStack.render(items, {
+    // Phone co-dep logs keep one layer per material with a "co-dep A:B (x vol%)" note; draw each group as one split block.
+    const merged = [];
+    for (const it of items) {
+      const last = merged[merged.length - 1];
+      if (it.co && last && last.co === it.co && last.parts.length < it.co.split(":").length) last.parts.push(...it.parts);
+      else merged.push({...it, parts: [...it.parts]});
+    }
+    VTEStack.render(merged, {
       totalText: items.length ? `총 ${fmt(total, 1) || 0} nm (${hasTargets ? "목표" : "모니터"})` : "",
       onItem: i => VTEStack.scrollToEl($(`#logDetail [data-layer="${i}"]`))
     });

@@ -73,14 +73,35 @@ function toRows(sheets) {
     {...Core.STRUCTURE_DEFAULTS, mode: "co-dep", mat1: "CBP", src1: "O-2", tf1: "50", vol1: "94", mat2: "Ir(ppy)3", src2: "O-4", tf2: "100", vol2: "6", thick: "30", rate: "0.3", mask: "2"}
   ]);
   assert.deepEqual(layers.map(l => [l.material, l.target_actual, l.target_rate, l.start_rate, l.mask]), [["HAT-CN", "10", "0.1", "", "1"], ["CBP", "28.2", "0.282", "", "2"], ["Ir(ppy)3", "1.8", "0.018", "", "2"]]);
-  assert.match(layers[1].notes, /co-dep CBP:Ir\(ppy\)3/);
+  assert.deepEqual(layers.map(l => [l.codep, l.vol, l.codep_total]), [["", "", ""], ["p2", "94", "30"], ["p2", "6", "30"]]);
   const presetRows = Core.draftLayersToPresetRows(layers);
+  assert.equal(presetRows[1].mode, "co-dep");
+  assert.deepEqual([presetRows[1].mat2, presetRows[1].vol2, presetRows[1].thick], ["Ir(ppy)3", "6", "30"]);
   const sheets = Core.buildPresetWorkbookSheets(presetRows, {Name: "PhOLED 기본", Author: "홍길동", "Created At": "2026-09-17"});
   assert.equal(sheets[1].sheetTitle, "Info");
   const rereadRows = toRows(sheets);
   assert.deepEqual(Core.structureRowsFromSheet(rereadRows), presetRows);
   assert.deepEqual(Core.presetToDraftLayers(presetRows).map(l => l.target_actual), ["10", "28.2", "1.8"]);
 
+  // Co-deposition: one row pair per material in the file (desktop-readable), regrouped with shares when read back.
+  const codep = [
+    {...Core.DRAFT_LAYER_DEFAULTS, material: "HAT-CN", port: "O-3", target_actual: "10"},
+    {...Core.DRAFT_LAYER_DEFAULTS, material: "CBP", port: "O-2", ratio: "0.8", codep: "g1", vol: "94", codep_total: "30", target_actual: "28.2", start_rate: "0.5", start_pressure: "5", notes: "EML"},
+    {...Core.DRAFT_LAYER_DEFAULTS, material: "Ir(ppy)3", port: "O-4", ratio: "0.2", codep: "g1", vol: "6", codep_total: "30", target_actual: "1.8", start_rate: "0.15", start_pressure: "5", notes: "EML"}
+  ];
+  assert.equal(Core.codepShare(codep.slice(1), codep[2]), "1.8");
+  const codepRows = toRows([Core.buildProcessLogSheet({isTooling: false, layers: Core.draftLayersToEditorRows(codep)})]);
+  const codepParsed = Core.parseProcessRows(codepRows);
+  assert.match(codepParsed.layers.CBP[0].notes, /^co-dep CBP:Ir\(ppy\)3 \(94 vol%\) \/ EML$/, "desktop app sees the co-dep tag in notes");
+  const codepBack = Core.draftLayersFromRows(codepRows);
+  assert.deepEqual(codepBack.map(l => [l.material, l.codep, l.vol, l.codep_total, l.target_actual, l.notes]),
+    [["HAT-CN", "", "", "", "10", ""], ["CBP", "f1", "94", "30", "28.2", "EML"], ["Ir(ppy)3", "f1", "6", "30", "1.8", "EML"]]);
+  assert.deepEqual(Core.draftLayersFromRows(toRows([Core.buildProcessLogSheet({isTooling: false, layers: Core.draftLayersToEditorRows(codepBack)})])), codepBack, "co-dep re-save is stable");
+  const v10c = loadApp(V10);
+  v10c.__rows = codepRows;
+  vm.runInContext("workbookRows = async () => __rows;", v10c);
+  assert.deepEqual(JSON.parse(JSON.stringify(await vm.runInContext("parseProcessLog({handle: {}})", v10c))), JSON.parse(JSON.stringify(codepParsed)), "v10 reads co-dep files the same way");
+
   assert.equal(Core.safeFileName(' EML: "a/b"  구조 '), "EML_ _a_b_ 구조");
-  console.log("core drafts: PASS; general/tooling sheet round trip with meta + times, stable re-save, calibration read-back, v10 reads mobile files identically, presets (co-dep split, sheet round trip)");
+  console.log("core drafts: PASS; general/tooling sheet round trip with meta + times, stable re-save, calibration read-back, v10 reads mobile files identically, presets (co-dep split, sheet round trip), co-dep groups (file marker, regroup, stable re-save, v10 parity)");
 })().catch(e => { console.error(e); process.exit(1); });
