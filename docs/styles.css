@@ -12,7 +12,8 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif; }
 button, input { font: inherit; }
-button { border: 1px solid var(--line); background: #fff; color: var(--text); border-radius: 10px; padding: 9px 14px; min-height: 42px; }
+/* touch-action stops iOS treating quick repeated taps on a button as a double-tap zoom. */
+button { border: 1px solid var(--line); background: #fff; color: var(--text); border-radius: 10px; padding: 9px 14px; min-height: 42px; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
 button.primary { background: var(--blue); color: #fff; border-color: var(--blue); }
 button.danger { color: var(--danger); }
 input { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-height: 44px; background: #fff; }
@@ -37,6 +38,8 @@ main { padding: 12px 12px calc(76px + var(--safe-bottom)); max-width: 760px; mar
 .mask-holder { margin-top: 10px; }
 .mask-holder.unused { opacity: .55; }
 .mask-holder-head { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.mask-type { flex: 1; }
+.mask-type button { min-height: 34px; font-size: 13px; }
 .mask-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; max-width: 220px; }
 .mask-cell { min-height: 46px; padding: 0; font-size: 13px; font-weight: 600; color: var(--muted); }
 .mask-cell.empty { color: var(--muted); }

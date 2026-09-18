@@ -251,33 +251,50 @@
     }
 
     // ---------- mask holders ----------
-    // One 3x3 grid per holder (1 2 3 / 4 5 6 / 7 8 9). Tapping a cell steps through the four
-    // things that fit in it, so a whole arrangement is entered without leaving the editor.
+    // A holder carries one kind of mask, so it is entered as a type plus the blocked cells: pick
+    // Organic, Metal or 전면 once, then tap cells in the 3x3 grid (1 2 3 / 4 5 6 / 7 8 9) to block
+    // them. `반전` gives the complement, which is how a second holder usually relates to the first.
     const holders = () => (draft.maskHolders ||= Object.fromEntries(Core.MASKS.map(m => [m, Core.emptyMaskHolder()])));
+    // The chosen type only needs remembering while every cell is blocked, where the cells cannot say.
+    const maskTypes = {};
+    const typeOf = mask => (maskTypes[mask] = Core.maskHolderType(holders()[mask], maskTypes[mask] || "."));
     function renderMaskHolders() {
       const set = holders();
       $("#maskHolders").innerHTML = Core.MASKS.map(mask => {
         const used = draft.layers.some(l => String(l.mask) === mask && String(l.material || "").trim());
+        const type = typeOf(mask);
+        const picker = Core.MASK_TYPE_TOKENS.map(token => {
+          const cell = Core.MASK_CELLS.find(c => c.token === token);
+          return `<button class="${token === type ? "active" : ""}" data-mask="${mask}" data-type="${token}">${esc(cell.short)}</button>`;
+        }).join("");
         const cells = set[mask].map((token, i) => {
           const cell = Core.MASK_CELLS.find(c => c.token === token);
           return `<button class="mask-cell ${cell.key}" data-mask="${mask}" data-cell="${i}"
-            aria-label="${mask}번 홀더 ${i + 1}칸: ${esc(cell.label)}">${esc(cell.short)}</button>`;
+            aria-label="${mask}번 홀더 ${i + 1}칸: ${esc(cell.label)}">${token === "B" ? "―" : esc(cell.short)}</button>`;
         }).join("");
         return `<div class="mask-holder ${used ? "" : "unused"}">
           <div class="mask-holder-head">Mask${mask}${used ? "" : ` <span class="hint">쓰는 레이어 없음</span>`}</div>
+          <div class="row">
+            <div class="segmented mask-type">${picker}</div>
+            <button data-invert="${mask}">반전</button>
+          </div>
           <div class="mask-grid">${cells}</div></div>`;
       }).join("");
     }
     function bindMaskHolders() {
       $("#maskHolders").onclick = e => {
-        const btn = e.target.closest("[data-cell]");
+        const btn = e.target.closest("[data-cell], [data-type], [data-invert]");
         if (!btn) return;
-        const cells = holders()[btn.dataset.mask];
-        const at = Number(btn.dataset.cell);
-        const next = (Core.MASK_CELLS.findIndex(c => c.token === cells[at]) + 1) % Core.MASK_CELLS.length;
-        cells[at] = Core.MASK_CELLS[next].token;
+        const set = holders();
+        const mask = btn.dataset.mask || btn.dataset.invert;
+        if (btn.dataset.type) maskTypes[mask] = btn.dataset.type;
+        const type = maskTypes[mask] || typeOf(mask);
+        if (btn.dataset.type) set[mask] = Core.setMaskHolderType(set[mask], type);
+        else if (btn.dataset.invert) set[mask] = Core.invertMaskHolder(set[mask], type);
+        else set[mask] = Core.toggleMaskHolderCell(set[mask], Number(btn.dataset.cell), type);
         persist();
         renderMaskHolders();
+        renderStructure();
       };
     }
 

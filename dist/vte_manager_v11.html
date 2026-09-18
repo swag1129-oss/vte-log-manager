@@ -113,6 +113,9 @@
     .mask-holders { display: flex; gap: 14px; }
     .mask-holder.unused { opacity: .55; }
     .mask-holder-head { font-size: 12px; font-weight: 600; margin-bottom: 3px; }
+    .mask-type-row { display: flex; gap: 3px; margin-bottom: 3px; }
+    .mask-type-row button { padding: 2px 6px; min-height: 22px; font-size: 11px; cursor: pointer; }
+    .mask-type.active { background: #e7f0fb; border-color: #1a73e8; color: #1a5fb4; font-weight: 600; }
     .mask-grid { display: grid; grid-template-columns: repeat(3, 30px); gap: 3px; }
     .mask-cell { height: 30px; padding: 0; font-size: 11px; font-weight: 600; cursor: pointer; }
     .mask-cell.organic { background: #e7f0fb; border-color: #1a73e8; color: #1a5fb4; }
@@ -404,6 +407,31 @@
     const out = {};
     for (const m of MASKS) out[maskHolderKey(m)] = formatMaskHolder(holders && holders[m]);
     return out;
+  }
+  /*
+   * A holder almost always carries one kind of mask, so it is entered as a mask type plus the cells
+   * that are blocked, instead of stepping every cell through all four states. These helpers keep
+   * the stored nine tokens as the single source of truth.
+   */
+  const MASK_TYPE_TOKENS = [".", "O", "M"];
+  // The type a holder is carrying: its first cell that is not a block. All blocked tells us nothing,
+  // so the caller's current choice is kept instead.
+  function maskHolderType(cells, fallback = ".") {
+    const found = parseMaskHolder(formatMaskHolder(cells)).find(t => t !== "B");
+    return found === undefined ? fallback : found;
+  }
+  // Swap the mask without touching which cells are blocked.
+  function setMaskHolderType(cells, token) {
+    return parseMaskHolder(formatMaskHolder(cells)).map(t => (t === "B" ? "B" : token));
+  }
+  function toggleMaskHolderCell(cells, index, token) {
+    const out = parseMaskHolder(formatMaskHolder(cells));
+    out[index] = out[index] === "B" ? token : "B";
+    return out;
+  }
+  // The complement, for the common case of a second holder covering exactly what the first blocked.
+  function invertMaskHolder(cells, token) {
+    return parseMaskHolder(formatMaskHolder(cells)).map(t => (t === "B" ? token : "B"));
   }
   // Cells 1..9 that a layer reaches, so a log shows which substrates a deposition actually covered.
   function maskHolderCoverage(cells) {
@@ -1198,6 +1226,7 @@
     ORGANIC_PORTS, METAL_PORTS, ALL_PORTS, MASKS, LOG_COLUMN_WIDTHS,
     MASK_CELL_COUNT, MASK_CELLS, emptyMaskHolder, maskHolderKey, maskHolderIsDefault,
     formatMaskHolder, parseMaskHolder, maskHoldersFromMeta, maskHoldersToMeta, maskHolderCoverage,
+    MASK_TYPE_TOKENS, maskHolderType, setMaskHolderType, toggleMaskHolderCell, invertMaskHolder,
     SAMPLE_ID_SUFFIX, SAMPLES_KEY, sampleVariantId, sampleVariants, samplesToMeta, STRUCTURE_KEYS, STRUCTURE_DEFAULTS,
     toFloat, fmt, dateStrFromName, splitPair, pressureX1e7, sameNumeric, parseDateKey, displayDate, safeSheetTitle,
     calcRequiredMonitor, calcMonitorRate, getCell, norm, currentYYMMDD, shapeRows,
@@ -1642,18 +1671,29 @@
         input.scrollIntoView({block: "nearest", inline: "nearest"});
       }
     }
-    // One 3x3 grid per mask holder (1 2 3 / 4 5 6 / 7 8 9); clicking a cell steps through the four
-    // things that fit in it. The arrangement changes per run, so it is entered with the layers.
+    // A holder carries one kind of mask, so it is entered as a type plus the blocked cells: pick
+    // Organic, Metal or 전면 once, then click cells in the 3x3 grid (1 2 3 / 4 5 6 / 7 8 9) to block
+    // them. `반전` gives the complement, which is how a second holder usually relates to the first.
+    // The chosen type only needs remembering while every cell is blocked, where the cells cannot say.
+    const maskTypes = {};
+    const maskTypeOf = mask => (maskTypes[mask] = VTECore.maskHolderType(state.maskHolders[mask], maskTypes[mask] || "."));
     function renderMaskHolders() {
       $("#maskHolders").innerHTML = VTECore.MASKS.map(mask => {
         const used = state.layerRows.some(r => String(r.mask) === mask && r.material.trim());
+        const type = maskTypeOf(mask);
+        const picker = VTECore.MASK_TYPE_TOKENS.map(token => {
+          const cell = VTECore.MASK_CELLS.find(c => c.token === token);
+          return `<button class="mask-type${token === type ? " active" : ""}" data-mask="${mask}" data-type="${token}"
+            title="${escapeAttr(cell.label)}">${escapeHtml(cell.short)}</button>`;
+        }).join("");
         const cells = state.maskHolders[mask].map((token, i) => {
           const cell = VTECore.MASK_CELLS.find(c => c.token === token);
           return `<button class="mask-cell ${cell.key}" data-mask="${mask}" data-cell="${i}"
-            title="${escapeAttr(cell.label)}" aria-label="${mask}번 홀더 ${i + 1}칸: ${escapeAttr(cell.label)}">${escapeHtml(cell.short)}</button>`;
+            title="${escapeAttr(cell.label)}" aria-label="${mask}번 홀더 ${i + 1}칸: ${escapeAttr(cell.label)}">${token === "B" ? "―" : escapeHtml(cell.short)}</button>`;
         }).join("");
         return `<div class="mask-holder${used ? "" : " unused"}">
           <div class="mask-holder-head">Mask${mask}</div>
+          <div class="mask-type-row">${picker}<button data-invert="${mask}" title="블록과 사용 칸을 뒤집습니다">반전</button></div>
           <div class="mask-grid">${cells}</div></div>`;
       }).join("");
     }
@@ -2062,11 +2102,14 @@
         insertLayerAt(position === "end" ? state.layerRows.length : Number(position));
       };
       $("#maskHolders").onclick = e => {
-        const btn = e.target.closest("[data-cell]");
+        const btn = e.target.closest("[data-cell], [data-type], [data-invert]");
         if (!btn) return;
-        const cells = state.maskHolders[btn.dataset.mask];
-        const at = Number(btn.dataset.cell);
-        cells[at] = VTECore.MASK_CELLS[(VTECore.MASK_CELLS.findIndex(c => c.token === cells[at]) + 1) % VTECore.MASK_CELLS.length].token;
+        const mask = btn.dataset.mask || btn.dataset.invert;
+        if (btn.dataset.type) maskTypes[mask] = btn.dataset.type;
+        const type = maskTypes[mask] || maskTypeOf(mask);
+        if (btn.dataset.type) state.maskHolders[mask] = VTECore.setMaskHolderType(state.maskHolders[mask], type);
+        else if (btn.dataset.invert) state.maskHolders[mask] = VTECore.invertMaskHolder(state.maskHolders[mask], type);
+        else state.maskHolders[mask] = VTECore.toggleMaskHolderCell(state.maskHolders[mask], Number(btn.dataset.cell), type);
         renderMaskHolders();
       };
       $("#removeLayerBtn").onclick = () => deleteLayer(state.layerRows.length - 1);

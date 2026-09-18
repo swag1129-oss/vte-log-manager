@@ -428,18 +428,29 @@
         input.scrollIntoView({block: "nearest", inline: "nearest"});
       }
     }
-    // One 3x3 grid per mask holder (1 2 3 / 4 5 6 / 7 8 9); clicking a cell steps through the four
-    // things that fit in it. The arrangement changes per run, so it is entered with the layers.
+    // A holder carries one kind of mask, so it is entered as a type plus the blocked cells: pick
+    // Organic, Metal or 전면 once, then click cells in the 3x3 grid (1 2 3 / 4 5 6 / 7 8 9) to block
+    // them. `반전` gives the complement, which is how a second holder usually relates to the first.
+    // The chosen type only needs remembering while every cell is blocked, where the cells cannot say.
+    const maskTypes = {};
+    const maskTypeOf = mask => (maskTypes[mask] = VTECore.maskHolderType(state.maskHolders[mask], maskTypes[mask] || "."));
     function renderMaskHolders() {
       $("#maskHolders").innerHTML = VTECore.MASKS.map(mask => {
         const used = state.layerRows.some(r => String(r.mask) === mask && r.material.trim());
+        const type = maskTypeOf(mask);
+        const picker = VTECore.MASK_TYPE_TOKENS.map(token => {
+          const cell = VTECore.MASK_CELLS.find(c => c.token === token);
+          return `<button class="mask-type${token === type ? " active" : ""}" data-mask="${mask}" data-type="${token}"
+            title="${escapeAttr(cell.label)}">${escapeHtml(cell.short)}</button>`;
+        }).join("");
         const cells = state.maskHolders[mask].map((token, i) => {
           const cell = VTECore.MASK_CELLS.find(c => c.token === token);
           return `<button class="mask-cell ${cell.key}" data-mask="${mask}" data-cell="${i}"
-            title="${escapeAttr(cell.label)}" aria-label="${mask}번 홀더 ${i + 1}칸: ${escapeAttr(cell.label)}">${escapeHtml(cell.short)}</button>`;
+            title="${escapeAttr(cell.label)}" aria-label="${mask}번 홀더 ${i + 1}칸: ${escapeAttr(cell.label)}">${token === "B" ? "―" : escapeHtml(cell.short)}</button>`;
         }).join("");
         return `<div class="mask-holder${used ? "" : " unused"}">
           <div class="mask-holder-head">Mask${mask}</div>
+          <div class="mask-type-row">${picker}<button data-invert="${mask}" title="블록과 사용 칸을 뒤집습니다">반전</button></div>
           <div class="mask-grid">${cells}</div></div>`;
       }).join("");
     }
@@ -848,11 +859,14 @@
         insertLayerAt(position === "end" ? state.layerRows.length : Number(position));
       };
       $("#maskHolders").onclick = e => {
-        const btn = e.target.closest("[data-cell]");
+        const btn = e.target.closest("[data-cell], [data-type], [data-invert]");
         if (!btn) return;
-        const cells = state.maskHolders[btn.dataset.mask];
-        const at = Number(btn.dataset.cell);
-        cells[at] = VTECore.MASK_CELLS[(VTECore.MASK_CELLS.findIndex(c => c.token === cells[at]) + 1) % VTECore.MASK_CELLS.length].token;
+        const mask = btn.dataset.mask || btn.dataset.invert;
+        if (btn.dataset.type) maskTypes[mask] = btn.dataset.type;
+        const type = maskTypes[mask] || maskTypeOf(mask);
+        if (btn.dataset.type) state.maskHolders[mask] = VTECore.setMaskHolderType(state.maskHolders[mask], type);
+        else if (btn.dataset.invert) state.maskHolders[mask] = VTECore.invertMaskHolder(state.maskHolders[mask], type);
+        else state.maskHolders[mask] = VTECore.toggleMaskHolderCell(state.maskHolders[mask], Number(btn.dataset.cell), type);
         renderMaskHolders();
       };
       $("#removeLayerBtn").onclick = () => deleteLayer(state.layerRows.length - 1);

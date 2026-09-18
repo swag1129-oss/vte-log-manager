@@ -35,6 +35,28 @@ assert.equal(Core.formatMaskHolder(Core.emptyMaskHolder()), "");
 assert.ok(Core.maskHolderIsDefault([]), "a malformed holder counts as default");
 assert.ok(!Core.maskHolderIsDefault(mask1));
 
+// Entering a holder: pick one mask type, then block cells. Typing every cell separately is what
+// this replaces, so the type applies to every cell that is not blocked.
+{
+  assert.equal(Core.maskHolderType(Core.emptyMaskHolder()), ".", "an untouched holder is full-face");
+  assert.equal(Core.maskHolderType("BBOOOOOOO".split("")), "O", "blocks are skipped when reading the type");
+  assert.equal(Core.maskHolderType("BBBBBBBBB".split(""), "M"), "M", "all blocked cannot say, so the choice stands");
+
+  let cells = Core.emptyMaskHolder();
+  cells = Core.setMaskHolderType(cells, "O");
+  assert.equal(Core.formatMaskHolder(cells), "OOOOOOOOO");
+  // Block the four cells from the drawing.
+  for (const at of [3, 4, 6, 7]) cells = Core.toggleMaskHolderCell(cells, at, "O");
+  assert.equal(Core.formatMaskHolder(cells), "OOOBBOBBO");
+  // Tapping a blocked cell brings it back with the holder's mask.
+  assert.equal(Core.formatMaskHolder(Core.toggleMaskHolderCell(cells, 3, "O")), "OOOOBOBBO");
+  // Switching the mask leaves the blocked cells alone.
+  assert.equal(Core.formatMaskHolder(Core.setMaskHolderType(cells, "M")), "MMMBBMBBM");
+  // The complement is the usual second holder: exactly what the first one blocked.
+  assert.equal(Core.formatMaskHolder(Core.invertMaskHolder(cells, "M")), "BBBMMBMMB");
+  assert.deepEqual(Core.maskHolderCoverage(Core.invertMaskHolder(cells, "M")), [4, 5, 7, 8]);
+}
+
 // Round trip through the workbook alongside the other metadata.
 const holders = {1: mask1, 2: "BBBMMBMMB".split(""), 3: Core.emptyMaskHolder()};
 const layers = Core.draftLayersToEditorRows([{...Core.DRAFT_LAYER_DEFAULTS, material: "Al", port: "M-1", mask: "2", target_actual: "100"}]);
@@ -48,4 +70,4 @@ assert.deepEqual(loaded[2], holders[2]);
 assert.deepEqual(loaded[3], Core.emptyMaskHolder(), "a missing holder loads as all empty");
 assert.equal(readBack[Core.PROCESS_ID_KEY], "VTE-A222-260918-1519", "other metadata is untouched");
 
-console.log("PASS; cell tokens, coverage incl. empty vs block, forgiving parse, default omitted, workbook round trip");
+console.log("PASS; cell tokens, coverage incl. empty vs block, forgiving parse, type+block entry, invert, default omitted, workbook round trip");

@@ -49,6 +49,31 @@
     for (const m of MASKS) out[maskHolderKey(m)] = formatMaskHolder(holders && holders[m]);
     return out;
   }
+  /*
+   * A holder almost always carries one kind of mask, so it is entered as a mask type plus the cells
+   * that are blocked, instead of stepping every cell through all four states. These helpers keep
+   * the stored nine tokens as the single source of truth.
+   */
+  const MASK_TYPE_TOKENS = [".", "O", "M"];
+  // The type a holder is carrying: its first cell that is not a block. All blocked tells us nothing,
+  // so the caller's current choice is kept instead.
+  function maskHolderType(cells, fallback = ".") {
+    const found = parseMaskHolder(formatMaskHolder(cells)).find(t => t !== "B");
+    return found === undefined ? fallback : found;
+  }
+  // Swap the mask without touching which cells are blocked.
+  function setMaskHolderType(cells, token) {
+    return parseMaskHolder(formatMaskHolder(cells)).map(t => (t === "B" ? "B" : token));
+  }
+  function toggleMaskHolderCell(cells, index, token) {
+    const out = parseMaskHolder(formatMaskHolder(cells));
+    out[index] = out[index] === "B" ? token : "B";
+    return out;
+  }
+  // The complement, for the common case of a second holder covering exactly what the first blocked.
+  function invertMaskHolder(cells, token) {
+    return parseMaskHolder(formatMaskHolder(cells)).map(t => (t === "B" ? token : "B"));
+  }
   // Cells 1..9 that a layer reaches, so a log shows which substrates a deposition actually covered.
   function maskHolderCoverage(cells) {
     return parseMaskHolder(formatMaskHolder(cells))
@@ -842,6 +867,7 @@
     ORGANIC_PORTS, METAL_PORTS, ALL_PORTS, MASKS, LOG_COLUMN_WIDTHS,
     MASK_CELL_COUNT, MASK_CELLS, emptyMaskHolder, maskHolderKey, maskHolderIsDefault,
     formatMaskHolder, parseMaskHolder, maskHoldersFromMeta, maskHoldersToMeta, maskHolderCoverage,
+    MASK_TYPE_TOKENS, maskHolderType, setMaskHolderType, toggleMaskHolderCell, invertMaskHolder,
     SAMPLE_ID_SUFFIX, SAMPLES_KEY, sampleVariantId, sampleVariants, samplesToMeta, STRUCTURE_KEYS, STRUCTURE_DEFAULTS,
     toFloat, fmt, dateStrFromName, splitPair, pressureX1e7, sameNumeric, parseDateKey, displayDate, safeSheetTitle,
     calcRequiredMonitor, calcMonitorRate, getCell, norm, currentYYMMDD, shapeRows,
