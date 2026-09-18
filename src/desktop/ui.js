@@ -26,7 +26,8 @@
       calRows: [],
       layerRows: [],
       deletedLayers: [],
-      structureRows: []
+      structureRows: [],
+      maskHolders: VTECore.maskHoldersFromMeta(null)
     };
 
     const $ = (sel, root = document) => root.querySelector(sel);
@@ -348,6 +349,7 @@
       // Keep them on the rows so saving here does not drop them. Same row filter and order as the parser loop below.
       const rawRows = await workbookRows(log.handle);
       state.editingMeta = VTECore.readSheetMeta(rawRows);
+      state.maskHolders = VTECore.maskHoldersFromMeta(state.editingMeta);
       const extras = VTECore.draftLayersFromRows(rawRows);
       state.layerRows = [];
       for (const [mat, rows] of Object.entries(parsed.layers).flatMap(([mat, rows]) => rows.map(item => [mat, [item]])).sort((a, b) => a[1][0].sequence - b[1][0].sequence)) {
@@ -426,7 +428,23 @@
         input.scrollIntoView({block: "nearest", inline: "nearest"});
       }
     }
+    // One 3x3 grid per mask holder (1 2 3 / 4 5 6 / 7 8 9); clicking a cell steps through the four
+    // things that fit in it. The arrangement changes per run, so it is entered with the layers.
+    function renderMaskHolders() {
+      $("#maskHolders").innerHTML = VTECore.MASKS.map(mask => {
+        const used = state.layerRows.some(r => String(r.mask) === mask && r.material.trim());
+        const cells = state.maskHolders[mask].map((token, i) => {
+          const cell = VTECore.MASK_CELLS.find(c => c.token === token);
+          return `<button class="mask-cell ${cell.key}" data-mask="${mask}" data-cell="${i}"
+            title="${escapeAttr(cell.label)}" aria-label="${mask}번 홀더 ${i + 1}칸: ${escapeAttr(cell.label)}">${escapeHtml(cell.short)}</button>`;
+        }).join("");
+        return `<div class="mask-holder${used ? "" : " unused"}">
+          <div class="mask-holder-head">Mask${mask}</div>
+          <div class="mask-grid">${cells}</div></div>`;
+      }).join("");
+    }
     function renderLayerRows() {
+      renderMaskHolders();
       const position = $("#layerInsertPosition");
       const selected = position.value;
       position.innerHTML = '<option value="end">맨 끝</option>' + state.layerRows.map((row, idx) =>
@@ -504,6 +522,7 @@
         ? {...editingMeta, "Modified By": "PC v11", "Modified At": new Date().toLocaleString("sv-SE").slice(0, 16)}
         : {App: `VTE Log Manager ${APP_VERSION}`, "Created At": new Date().toLocaleString("sv-SE").slice(0, 16)};
       meta[VTECore.PROCESS_ID_KEY] = VTECore.keepProcessId(editingMeta, yymmdd);
+      Object.assign(meta, VTECore.maskHoldersToMeta(state.maskHolders));
       const sheet = VTECore.buildProcessLogSheet({isTooling, layers: rows, memo: $("#newMemo").value, version: APP_VERSION, meta});
       let dir = state.appDir;
       for (const part of VTECore.processLogFolder(isTooling, yymmdd)) dir = await ensureDir(dir, part);
@@ -827,6 +846,14 @@
       $("#addLayerBtn").onclick = () => {
         const position = $("#layerInsertPosition").value;
         insertLayerAt(position === "end" ? state.layerRows.length : Number(position));
+      };
+      $("#maskHolders").onclick = e => {
+        const btn = e.target.closest("[data-cell]");
+        if (!btn) return;
+        const cells = state.maskHolders[btn.dataset.mask];
+        const at = Number(btn.dataset.cell);
+        cells[at] = VTECore.MASK_CELLS[(VTECore.MASK_CELLS.findIndex(c => c.token === cells[at]) + 1) % VTECore.MASK_CELLS.length].token;
+        renderMaskHolders();
       };
       $("#removeLayerBtn").onclick = () => deleteLayer(state.layerRows.length - 1);
       $("#undoLayerBtn").onclick = undoLayerDeletion;

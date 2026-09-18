@@ -109,6 +109,15 @@
     .form-grid { display: grid; grid-template-columns: repeat(4, max-content); gap: 8px 10px; align-items: center; }
     .muted { color: var(--muted); }
     .hint { color: var(--muted); font-size: 12px; }
+    /* Mask holders: three 3x3 grids. A holder no layer uses is dimmed. */
+    .mask-holders { display: flex; gap: 14px; }
+    .mask-holder.unused { opacity: .55; }
+    .mask-holder-head { font-size: 12px; font-weight: 600; margin-bottom: 3px; }
+    .mask-grid { display: grid; grid-template-columns: repeat(3, 30px); gap: 3px; }
+    .mask-cell { height: 30px; padding: 0; font-size: 11px; font-weight: 600; cursor: pointer; }
+    .mask-cell.organic { background: #e7f0fb; border-color: #1a73e8; color: #1a5fb4; }
+    .mask-cell.metal { background: #fdecc8; border-color: #b7791f; color: #8a5a00; }
+    .mask-cell.block { background: #e9ecf1; color: var(--muted); }
     .error { color: var(--danger); }
     .ok { color: var(--accent-2); }
     .layer-input-table input, .layer-input-table select,
@@ -213,6 +222,10 @@
         <label>로그 종류:
           <select id="newLogType"><option>일반증착</option><option>툴링</option></select>
         </label>
+      </div>
+      <div class="panel row">
+        <span>마스크 홀더 <span class="muted">(칸을 눌러 바꿈)</span></span>
+        <div id="maskHolders" class="mask-holders"></div>
       </div>
       <div class="panel row">
         <label>추가 위치: <select id="layerInsertPosition" aria-label="레이어 추가 위치"><option value="end">맨 끝</option></select></label>

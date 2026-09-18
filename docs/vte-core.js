@@ -14,6 +14,46 @@
   const METAL_PORTS = ["M-1", "M-2", "M-3"];
   const ALL_PORTS = [...ORGANIC_PORTS, ...METAL_PORTS];
   const MASKS = ["1", "2", "3"];
+  /*
+   * Mask holder: 9 cells, numbered left to right and top to bottom (1 2 3 / 4 5 6 / 7 8 9).
+   * Each cell holds an organic mask, a metal mask, a block that lets nothing through, or nothing
+   * at all — an empty cell deposits over the whole substrate. The holder itself is always loaded.
+   * The arrangement changes per run and only the three holders MASKS names can be fitted, so each
+   * log records its own three arrangements; layers keep pointing at a holder by its number.
+   */
+  const MASK_CELL_COUNT = 9;
+  const MASK_CELLS = [
+    {token: ".", key: "empty", label: "빈칸", short: "전면"},
+    {token: "O", key: "organic", label: "Organic Mask", short: "O"},
+    {token: "M", key: "metal", label: "Metal Mask", short: "M"},
+    {token: "B", key: "block", label: "블록", short: "―"}
+  ];
+  const MASK_CELL_BY_TOKEN = new Map(MASK_CELLS.map(c => [c.token, c]));
+  const emptyMaskHolder = () => Array(MASK_CELL_COUNT).fill(".");
+  const maskHolderKey = mask => `Mask${mask} Cells`;
+  // A holder with nothing but empty cells says nothing the default does not, so it is not written.
+  function maskHolderIsDefault(cells) {
+    return !Array.isArray(cells) || cells.length !== MASK_CELL_COUNT || cells.every(t => t === ".");
+  }
+  function formatMaskHolder(cells) {
+    return maskHolderIsDefault(cells) ? "" : cells.join("");
+  }
+  // Unknown or missing tokens read back as empty cells, so a hand-edited file still loads.
+  function parseMaskHolder(text) {
+    const tokens = String(text ?? "").toUpperCase().replace(/[\s,]/g, "").split("");
+    return emptyMaskHolder().map((fallback, i) => (MASK_CELL_BY_TOKEN.has(tokens[i]) ? tokens[i] : fallback));
+  }
+  const maskHoldersFromMeta = meta => Object.fromEntries(MASKS.map(m => [m, parseMaskHolder(meta && meta[maskHolderKey(m)])]));
+  function maskHoldersToMeta(holders) {
+    const out = {};
+    for (const m of MASKS) out[maskHolderKey(m)] = formatMaskHolder(holders && holders[m]);
+    return out;
+  }
+  // Cells 1..9 that a layer reaches, so a log shows which substrates a deposition actually covered.
+  function maskHolderCoverage(cells) {
+    return parseMaskHolder(formatMaskHolder(cells))
+      .map((token, i) => (token === "B" ? null : i + 1)).filter(n => n !== null);
+  }
   const LOG_COLUMN_WIDTHS = [20, 9, 22, 20, 14, 12, 15, 11, 15, 18, 30, 8, 14, 14, 12, 12, 16, 12, 16, 18, 20, 20];
   const STRUCTURE_KEYS = ["mode", "mat1", "src1", "tf1", "vol1", "mat2", "src2", "tf2", "vol2", "mat3", "src3", "tf3", "vol3", "thick", "rate", "mask"];
   const STRUCTURE_DEFAULTS = {mode: "single", mat1: "", src1: "", tf1: "", vol1: "100", mat2: "", src2: "", tf2: "", vol2: "", mat3: "", src3: "", tf3: "", vol3: "", thick: "", rate: "", mask: "1"};
@@ -755,7 +795,9 @@
   }
 
   return {
-    ORGANIC_PORTS, METAL_PORTS, ALL_PORTS, MASKS, LOG_COLUMN_WIDTHS, STRUCTURE_KEYS, STRUCTURE_DEFAULTS,
+    ORGANIC_PORTS, METAL_PORTS, ALL_PORTS, MASKS, LOG_COLUMN_WIDTHS,
+    MASK_CELL_COUNT, MASK_CELLS, emptyMaskHolder, maskHolderKey, maskHolderIsDefault,
+    formatMaskHolder, parseMaskHolder, maskHoldersFromMeta, maskHoldersToMeta, maskHolderCoverage, STRUCTURE_KEYS, STRUCTURE_DEFAULTS,
     toFloat, fmt, dateStrFromName, splitPair, pressureX1e7, sameNumeric, parseDateKey, displayDate, safeSheetTitle,
     calcRequiredMonitor, calcMonitorRate, getCell, norm, currentYYMMDD, shapeRows,
     parseProcessRows,

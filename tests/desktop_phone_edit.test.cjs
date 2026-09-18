@@ -19,7 +19,8 @@ const toRows = sheet => {
     {...Core.DRAFT_LAYER_DEFAULTS, material: "Ir(ppy)3", port: "O-4", ratio: "0.2", codep: "g1", vol: "6", codep_total: "30", target_actual: "1.8", start_rate: "0.15", end_rate: "0.15",
       started_at: "2026-09-17 10:12", ended_at: "2026-09-17 10:30", notes: "EML"}
   ];
-  const meta = {App: "VTE Log PWA test", Author: "홍길동", Device: "iPhone", "Created At": "2026-09-17 10:31"};
+  const meta = {App: "VTE Log PWA test", Author: "홍길동", Device: "iPhone", "Created At": "2026-09-17 10:31",
+    ...Core.maskHoldersToMeta({1: "OOOBBOBBO".split(""), 2: "BBBMMBMMB".split(""), 3: Core.emptyMaskHolder()})};
   const phoneRows = toRows(Core.buildProcessLogSheet({isTooling: false, layers: Core.draftLayersToEditorRows(draft), meta, timeTag: "1031"}));
 
   const app = loadApp(DIST);
@@ -50,11 +51,19 @@ const toRows = sheet => {
   assert.equal(savedMeta.Author, "홍길동");
   assert.equal(savedMeta["Modified By"], "PC v11");
   assert.equal(Core.parseProcessRows(saved).layers.CBP[0].notes, "co-dep CBP:Ir(ppy)3 (94 vol%) / EML", "tag not duplicated");
+  // The mask holder arrangement belongs to the run, so a PC edit must not drop or reshuffle it.
+  assert.equal(savedMeta[Core.maskHolderKey(1)], "OOOBBOBBO", "mask holder survives a PC edit");
+  assert.equal(savedMeta[Core.maskHolderKey(2)], "BBBMMBMMB");
+
+  // Editing a holder on the PC replaces only that one.
+  saved = await saveAfter(`state.maskHolders["1"][4] = "O";`);
+  assert.equal(Core.readSheetMeta(saved)[Core.maskHolderKey(1)], "OOOBOOBBO");
+  assert.equal(Core.readSheetMeta(saved)[Core.maskHolderKey(2)], "BBBMMBMMB", "the other holders are left alone");
 
   // Changing a start rate on the PC drops the stale end rate from the phone.
   saved = await saveAfter(`state.layerRows[0].rate = "0.2";`);
   const changed = Core.draftLayersFromRows(saved)[0];
   assert.deepEqual([changed.start_rate, changed.end_rate], ["0.2", "0.2"]);
 
-  console.log("desktop phone edit: PASS; PC v11 edit keeps author metadata, times, end rates, co-dep groups; stale end rate dropped");
+  console.log("desktop phone edit: PASS; PC v11 edit keeps author metadata, times, end rates, co-dep groups; stale end rate dropped, mask holders kept");
 })().catch(e => { console.error(e); process.exit(1); });

@@ -33,6 +33,16 @@ main { padding: 12px 12px calc(76px + var(--safe-bottom)); max-width: 760px; mar
 .row { display: flex; gap: 8px; align-items: center; }
 .row input { flex: 1; }
 .hint { color: var(--muted); font-size: 13px; }
+/* Mask holders: three 3x3 grids, sized for a gloved tap. A holder no layer uses is dimmed. */
+.mask-holder { margin-top: 10px; }
+.mask-holder.unused { opacity: .55; }
+.mask-holder-head { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.mask-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; max-width: 220px; }
+.mask-cell { min-height: 46px; padding: 0; font-size: 13px; font-weight: 600; color: var(--muted); }
+.mask-cell.empty { color: var(--muted); }
+.mask-cell.organic { background: var(--blue-soft); border-color: var(--blue); color: var(--blue); }
+.mask-cell.metal { background: #fdecc8; border-color: #b7791f; color: #8a5a00; }
+.mask-cell.block { background: #e9ecf1; border-color: var(--muted); color: var(--muted); }
 .error { color: var(--danger); white-space: pre-wrap; }
 
 .filters { display: grid; gap: 8px; margin-bottom: 8px; }

@@ -169,7 +169,8 @@
       return confirm("작성 중인 초안이 있어요. 버리고 새로 시작할까요?");
     }
     async function startDraft({type, layers = [], preset = "", editing = null, date = Core.currentYYMMDD(), createdAt = nowText()}) {
-      draft = {type, date, memo: "", preset, layers: layers.length ? layers : [{...Core.DRAFT_LAYER_DEFAULTS}], editing, createdAt};
+      draft = {type, date, memo: "", preset, layers: layers.length ? layers : [{...Core.DRAFT_LAYER_DEFAULTS}], editing, createdAt,
+        maskHolders: Core.maskHoldersFromMeta(editing && editing.meta)};
       if (!editing) draft.layers.forEach(l => autofill(l));
       await app.store.set("draft", draft);
       render();
@@ -245,7 +246,39 @@
       $("#materialOptions").innerHTML = [...app.model.comboOptions().map(c => c.label), ...app.model.materials]
         .map(v => `<option value="${esc(v)}"></option>`).join("");
       $("#layerCards").innerHTML = blocks().map((idx, n) => cardHtml(idx, n)).join("");
+      renderMaskHolders();
       renderStructure();
+    }
+
+    // ---------- mask holders ----------
+    // One 3x3 grid per holder (1 2 3 / 4 5 6 / 7 8 9). Tapping a cell steps through the four
+    // things that fit in it, so a whole arrangement is entered without leaving the editor.
+    const holders = () => (draft.maskHolders ||= Object.fromEntries(Core.MASKS.map(m => [m, Core.emptyMaskHolder()])));
+    function renderMaskHolders() {
+      const set = holders();
+      $("#maskHolders").innerHTML = Core.MASKS.map(mask => {
+        const used = draft.layers.some(l => String(l.mask) === mask && String(l.material || "").trim());
+        const cells = set[mask].map((token, i) => {
+          const cell = Core.MASK_CELLS.find(c => c.token === token);
+          return `<button class="mask-cell ${cell.key}" data-mask="${mask}" data-cell="${i}"
+            aria-label="${mask}번 홀더 ${i + 1}칸: ${esc(cell.label)}">${esc(cell.short)}</button>`;
+        }).join("");
+        return `<div class="mask-holder ${used ? "" : "unused"}">
+          <div class="mask-holder-head">Mask${mask}${used ? "" : ` <span class="hint">쓰는 레이어 없음</span>`}</div>
+          <div class="mask-grid">${cells}</div></div>`;
+      }).join("");
+    }
+    function bindMaskHolders() {
+      $("#maskHolders").onclick = e => {
+        const btn = e.target.closest("[data-cell]");
+        if (!btn) return;
+        const cells = holders()[btn.dataset.mask];
+        const at = Number(btn.dataset.cell);
+        const next = (Core.MASK_CELLS.findIndex(c => c.token === cells[at]) + 1) % Core.MASK_CELLS.length;
+        cells[at] = Core.MASK_CELLS[next].token;
+        persist();
+        renderMaskHolders();
+      };
     }
 
     // ---------- structure panel ----------
@@ -530,6 +563,7 @@
         ? {...editing.meta, App: `VTE Log PWA ${config.version}`, "Modified By": author(), "Modified At": nowText(), Device: deviceName(), Preset: d.preset || editing.meta.Preset || ""}
         : {App: `VTE Log PWA ${config.version}`, Author: author(), Device: deviceName(), "Created At": d.createdAt, Preset: d.preset};
       meta[Core.PROCESS_ID_KEY] = Core.keepProcessId(editing && editing.meta, d.date, tag);
+      Object.assign(meta, Core.maskHoldersToMeta(d.maskHolders));
       const sheet = Core.buildProcessLogSheet({isTooling, layers: Core.draftLayersToEditorRows(layers), memo: d.memo, meta, timeTag: tag});
       const newPath = `${savePrefix()}${Core.processLogFolder(isTooling, d.date).join("/")}/${Core.pathSafe(sheet.fileName)}`;
       // Edit in place only in the matching mode (test file in test mode, real file otherwise) and while the file still exists;
@@ -669,6 +703,7 @@
       $$("#editorType button").forEach(b => { b.onclick = () => { draft.type = b.dataset.type; persist(); renderEditor(); }; });
       $("#editorDate").oninput = e => { draft.date = e.target.value.trim(); persist(); };
       $("#editorMemo").oninput = e => { draft.memo = e.target.value; persist(); };
+      bindMaskHolders();
       $("#addLayerBtn").onclick = () => {
         const prev = draft.layers[draft.layers.length - 1];
         draft.layers.push({...Core.DRAFT_LAYER_DEFAULTS, mask: prev?.mask || "1"});
