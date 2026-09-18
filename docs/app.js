@@ -4,7 +4,7 @@
   const CONFIG = {
     appKey: "5rz8t9p1imu4wa9",
     defaultRoot: "/NEXT LAB/Log/A222/VTE log/VTE_MANAGER",
-    version: "2026-09-18-dced9aad"
+    version: "2026-09-18-e9bd8dc9"
   };
   const LS = {author: "vte.author", root: "vte.root"};
   const {fmt, displayDate, calcRequiredMonitor, calcMonitorRate} = VTECore;
@@ -129,6 +129,7 @@
         ${parsed.error ? `<p class="error">${esc(parsed.error)}</p>` : ""}
         <div class="chips">${parsed.material_list.map(m => `<span class="chip">${esc(m.material)} · ${esc(m.port)}</span>`).join("")}</div>
         ${logMetaLine(log)}
+        ${sampleLines(log, layers)}
         <div class="row" style="margin-top:8px"><button id="editLogBtn">수정</button><button id="deleteLogBtn" class="danger">삭제</button>${log.test ? '<span class="badge test">테스트 폴더 파일</span>' : ""}</div>
       </div>
       ${layers.map((l, i) => `
@@ -151,16 +152,23 @@
       <p class="hint">${esc(log.realPath || log.relPath)}</p>`;
     $("#editLogBtn").onclick = () => editor.editLog(log);
     $("#deleteLogBtn").onclick = () => deleteLog(log);
-    renderLogStack(layers);
+    const holders = VTECore.maskHoldersFromMeta(VTECore.readSheetMeta(app.model.rowsOf(log.realPath) || []));
+    renderLogStack(layers, VTECore.sampleVariants(layers, holders, "").variants, 1);
     show("log-detail");
   }
 
   // Stack drawing for a saved log. Co-deposition layers ("A:B") are split into side-by-side parts.
-  function renderLogStack(layers) {
+  // With several kinds of sample the panel draws one kind at a time, chosen by its tab.
+  function renderLogStack(allLayers, variants, selected) {
+    const shown = variants.find(v => v.n === selected) || variants[0];
+    // A layer this kind never received is dropped, but the blocks keep pointing at the layer card
+    // they came from, so the numbering in the detail list still lines up.
+    const layers = allLayers.map((l, i) => ({l, i}))
+      .filter(({i}) => variants.length < 2 || !shown || shown.layerIndexes.includes(i));
     const num = v => VTECore.toFloat(v);
-    const hasTargets = layers.some(l => num(l.target_actual));
+    const hasTargets = layers.some(({l}) => num(l.target_actual));
     let total = 0;
-    const items = layers.map((l, i) => {
+    const items = layers.map(({l, i}) => {
       const mats = String(l.material).split(":").map(m => m.trim()).filter(Boolean);
       const target = String(l.target_actual ?? "").split("/").map(num);
       const monitor = String(l.required_monitor ?? l.monitor_thickness ?? "").split("/").map(num);
@@ -182,6 +190,9 @@
     }
     VTEStack.render(merged, {
       totalText: items.length ? `총 ${fmt(total, 1) || 0} nm (${hasTargets ? "목표" : "모니터"})` : "",
+      variants,
+      selected: shown ? shown.n : 1,
+      onVariant: n => renderLogStack(allLayers, variants, n),
       onItem: i => VTEStack.scrollToEl($(`#logDetail [data-layer="${i}"]`))
     });
   }
@@ -204,6 +215,15 @@
         ? "다른 기기에서 이미 수정되거나 삭제된 파일이에요. 동기화 후 다시 확인해 주세요."
         : `삭제 실패: ${err.message}`);
     }
+  }
+  // The kinds of sample this run made, each with its own id and the substrates it sits on.
+  function sampleLines(log, layers) {
+    const meta = VTECore.readSheetMeta(app.model.rowsOf(log.realPath) || []);
+    const {variants, unused} = VTECore.sampleVariants(layers, VTECore.maskHoldersFromMeta(meta), meta[VTECore.PROCESS_ID_KEY] || "");
+    if (variants.length < 2) return "";
+    const rows = variants.map(v => `<div><span>${esc(v.id)}</span><span>기판 ${v.cells.join(", ")}</span></div>`).join("");
+    return `<div class="kv samples">${rows}</div>`
+      + (unused.length ? `<p class="hint">증착 없음: 기판 ${unused.join(", ")}</p>` : "");
   }
   function logMetaLine(log) {
     const meta = VTECore.readSheetMeta(app.model.rowsOf(log.realPath) || []);

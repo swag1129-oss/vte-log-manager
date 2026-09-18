@@ -25,4 +25,17 @@ assert.ok(html.lastIndexOf("기판") > html.lastIndexOf("HAT-CN"), "substrate la
 // PtOEP stays sandwiched between the two CBP layers after reversal.
 assert.deepStrictEqual(order.slice(3, 6), ["CBP", "PtOEP", "CBP"], "repeated materials keep order");
 
-console.log("PASS; top-first order, total placement, substrate last, repeated-material sandwich");
+// With several kinds of sample the panel offers a tab per kind and names the substrates it sits on.
+const variants = [{n: 1, cells: [1, 2, 3, 6]}, {n: 2, cells: [4, 5, 7, 8]}, {n: 3, cells: [9]}];
+global.VTEStack.render(items.slice(0, 2), {variants, selected: 2});
+const tabs = els["#structureTabs"].innerHTML;
+assert.deepStrictEqual([...tabs.matchAll(/data-variant="(\d)"/g)].map(m => m[1]), ["1", "2", "3"]);
+assert.match(tabs, /class="stack-tab active" data-variant="2"/, "the selected kind is marked");
+assert.equal(els["#structureCells"].textContent, "기판 4,5,7,8");
+
+// A single kind needs no tabs, and the strip is emptied rather than left stale.
+global.VTEStack.render(items, {variants: [{n: 1, cells: [1, 2, 3, 4, 5, 6, 7, 8, 9]}]});
+assert.equal(els["#structureTabs"].innerHTML, "");
+assert.equal(els["#structureCells"].textContent, "");
+
+console.log("PASS; top-first order, total placement, substrate last, repeated-material sandwich, sample tabs");

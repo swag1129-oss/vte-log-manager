@@ -54,6 +54,51 @@
     return parseMaskHolder(formatMaskHolder(cells))
       .map((token, i) => (token === "B" ? null : i + 1)).filter(n => n !== null);
   }
+  /*
+   * One run can produce more than one kind of sample: a cell blocked while a layer was deposited
+   * never received it, so substrates end up with different stacks. Group the nine cells by the
+   * stack they actually got and each group is one sample kind, identified as <process id>-T1, -T2…
+   * In the three-holder example — one holder open over five cells, the complement over the other
+   * four, overlapping on one — that yields the three kinds those cells fall into.
+   * `layers` are draft/editor rows in deposition order; a row without a material is ignored.
+   * Cells that received nothing at all carry no sample and are reported separately as unused.
+   */
+  const SAMPLE_ID_SUFFIX = "T";
+  const SAMPLES_KEY = "Samples";
+  // Derived from the layers and the holders, but written into the file so a reader gets the sample
+  // ids without repeating the grouping. Regenerated on every save. One kind is the plain case and
+  // says nothing useful, so it is left out.
+  function samplesToMeta(layers, holders) {
+    const {variants} = sampleVariants(layers, holders);
+    return {[SAMPLES_KEY]: variants.length > 1
+      ? variants.map(v => `${SAMPLE_ID_SUFFIX}${v.n}=${v.cells.join(",")}`).join("; ") : ""};
+  }
+  function sampleVariantId(processId, n) {
+    return processId ? `${processId}-${SAMPLE_ID_SUFFIX}${n}` : `${SAMPLE_ID_SUFFIX}${n}`;
+  }
+  function sampleVariants(layers, holders, processId = "") {
+    const rows = (layers || []).map((l, i) => ({layer: l, at: i}))
+      .filter(({layer}) => String(layer.material || "").trim());
+    const cellsOf = mask => parseMaskHolder(formatMaskHolder(holders && holders[String(mask || "1")]));
+    const byKey = new Map();
+    const unused = [];
+    for (let cell = 1; cell <= MASK_CELL_COUNT; cell++) {
+      // A layer reaches this cell unless the holder it used blocks the cell; the mask fitted there
+      // is part of the stack, since the same material through a different mask patterns differently.
+      const got = rows.filter(({layer}) => cellsOf(layer.mask)[cell - 1] !== "B")
+        .map(({layer, at}) => ({at, token: cellsOf(layer.mask)[cell - 1]}));
+      if (!got.length) { unused.push(cell); continue; }
+      const key = got.map(g => `${g.at}${g.token}`).join("|");
+      if (byKey.has(key)) byKey.get(key).cells.push(cell);
+      else byKey.set(key, {cells: [cell], layerIndexes: got.map(g => g.at)});
+    }
+    // Numbered by the first cell that carries each kind, so the ids do not shuffle between saves.
+    const variants = [...byKey.values()].sort((a, b) => a.cells[0] - b.cells[0]);
+    return {
+      unused,
+      variants: variants.map((v, i) => ({...v, n: i + 1, id: sampleVariantId(processId, i + 1)}))
+    };
+  }
   const LOG_COLUMN_WIDTHS = [20, 9, 22, 20, 14, 12, 15, 11, 15, 18, 30, 8, 14, 14, 12, 12, 16, 12, 16, 18, 20, 20];
   const STRUCTURE_KEYS = ["mode", "mat1", "src1", "tf1", "vol1", "mat2", "src2", "tf2", "vol2", "mat3", "src3", "tf3", "vol3", "thick", "rate", "mask"];
   const STRUCTURE_DEFAULTS = {mode: "single", mat1: "", src1: "", tf1: "", vol1: "100", mat2: "", src2: "", tf2: "", vol2: "", mat3: "", src3: "", tf3: "", vol3: "", thick: "", rate: "", mask: "1"};
@@ -797,7 +842,8 @@
   return {
     ORGANIC_PORTS, METAL_PORTS, ALL_PORTS, MASKS, LOG_COLUMN_WIDTHS,
     MASK_CELL_COUNT, MASK_CELLS, emptyMaskHolder, maskHolderKey, maskHolderIsDefault,
-    formatMaskHolder, parseMaskHolder, maskHoldersFromMeta, maskHoldersToMeta, maskHolderCoverage, STRUCTURE_KEYS, STRUCTURE_DEFAULTS,
+    formatMaskHolder, parseMaskHolder, maskHoldersFromMeta, maskHoldersToMeta, maskHolderCoverage,
+    SAMPLE_ID_SUFFIX, SAMPLES_KEY, sampleVariantId, sampleVariants, samplesToMeta, STRUCTURE_KEYS, STRUCTURE_DEFAULTS,
     toFloat, fmt, dateStrFromName, splitPair, pressureX1e7, sameNumeric, parseDateKey, displayDate, safeSheetTitle,
     calcRequiredMonitor, calcMonitorRate, getCell, norm, currentYYMMDD, shapeRows,
     parseProcessRows,

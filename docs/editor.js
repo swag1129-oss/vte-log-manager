@@ -282,6 +282,8 @@
     }
 
     // ---------- structure panel ----------
+    // Which kind of sample the panel is currently drawing; view state only, not part of the draft.
+    let structureVariant = 1;
     // A co-dep group is drawn as one split block.
     function stackGroups(layers) {
       const groups = [];
@@ -294,8 +296,15 @@
       return groups;
     }
     function renderStructure() {
-      const groups = stackGroups(draft.layers);
-      const total = draft.layers.reduce((sum, l) => sum + (String(l.material || "").trim() ? Core.toFloat(l.target_actual) || 0 : 0), 0);
+      // With more than one kind of sample, the panel draws the selected kind only: layers a kind
+      // never received are left out, so the drawing matches what is actually on those substrates.
+      const {variants} = Core.sampleVariants(draft.layers, holders(), "");
+      if (!variants.some(v => v.n === structureVariant)) structureVariant = variants.length ? variants[0].n : 1;
+      const shown = variants.find(v => v.n === structureVariant);
+      const inKind = i => !shown || variants.length < 2 || shown.layerIndexes.includes(i);
+      const layers = draft.layers.map((l, i) => (inKind(i) ? l : {...l, material: ""}));
+      const groups = stackGroups(layers);
+      const total = layers.reduce((sum, l) => sum + (String(l.material || "").trim() ? Core.toFloat(l.target_actual) || 0 : 0), 0);
       VTEStack.render(groups.map(g => ({
         parts: g.items.map(({l}) => ({material: l.material, thick: Core.toFloat(l.target_actual) || 0, label: Core.toFloat(l.target_actual) ? fmt(Core.toFloat(l.target_actual), 1) : ""})),
         mask: g.mask,
@@ -303,6 +312,9 @@
         jump: g.items[0].i
       })), {
         totalText: `총 ${fmt(total, 1) || 0} nm (목표)`,
+        variants,
+        selected: structureVariant,
+        onVariant: n => { structureVariant = n; renderStructure(); },
         onItem: i => {
           if (draft.layers[i].collapsed) { setShared(i, "collapsed", false); persist(); refreshCard(i); }
           VTEStack.scrollToEl($(`[data-card="${blockOf(i)[0]}"]`));
@@ -563,7 +575,7 @@
         ? {...editing.meta, App: `VTE Log PWA ${config.version}`, "Modified By": author(), "Modified At": nowText(), Device: deviceName(), Preset: d.preset || editing.meta.Preset || ""}
         : {App: `VTE Log PWA ${config.version}`, Author: author(), Device: deviceName(), "Created At": d.createdAt, Preset: d.preset};
       meta[Core.PROCESS_ID_KEY] = Core.keepProcessId(editing && editing.meta, d.date, tag);
-      Object.assign(meta, Core.maskHoldersToMeta(d.maskHolders));
+      Object.assign(meta, Core.maskHoldersToMeta(d.maskHolders), Core.samplesToMeta(layers, d.maskHolders));
       const sheet = Core.buildProcessLogSheet({isTooling, layers: Core.draftLayersToEditorRows(layers), memo: d.memo, meta, timeTag: tag});
       const newPath = `${savePrefix()}${Core.processLogFolder(isTooling, d.date).join("/")}/${Core.pathSafe(sheet.fileName)}`;
       // Edit in place only in the matching mode (test file in test mode, real file otherwise) and while the file still exists;
