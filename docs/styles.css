@@ -113,7 +113,7 @@ input, select, textarea { font-size: 16px; }
 .structure-panel.collapsed { width: auto; }
 .structure-panel.collapsed .structure-body { display: none; }
 .structure-toggle { width: 100%; min-height: 34px; padding: 4px 10px; border: none; border-radius: 0; font-size: 13px; font-weight: 600; color: var(--blue); background: transparent; }
-.structure-body { max-height: 55vh; overflow-y: auto; padding: 4px 6px 8px; display: flex; flex-direction: column-reverse; gap: 2px; }
+.structure-body { max-height: 55vh; overflow-y: auto; padding: 4px 6px 8px; display: flex; flex-direction: column; gap: 2px; }
 .stack-layer { display: flex; align-items: stretch; border-radius: 4px; overflow: hidden; font-size: 11px; line-height: 1.2; color: #1c2430; border: 1px solid rgba(0,0,0,.08); cursor: pointer; }
 .stack-layer .parts { flex: 1; display: flex; }
 .stack-layer .part { flex: 1; display: flex; align-items: center; justify-content: center; padding: 1px 3px; text-align: center; word-break: break-all; }

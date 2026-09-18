@@ -497,9 +497,13 @@
       const isTooling = $("#newLogType").value === "툴링";
       // An end rate from the phone only stays while the (start) rate is unchanged here.
       const rows = VTECore.tagCodepRows(layers.map(r => (r.end_rate && r.rate !== r.orig_rate ? {...r, end_rate: ""} : r)));
-      const meta = state.editingLog && state.editingMeta && Object.keys(state.editingMeta).length
-        ? {...state.editingMeta, "Modified By": "PC v11", "Modified At": new Date().toLocaleString("sv-SE").slice(0, 16)}
-        : null;
+      // A new PC log carries no meta of its own, but the measurement database needs a process id,
+      // so always write meta here. Editing keeps the existing id instead of issuing a new one.
+      const editingMeta = state.editingLog && state.editingMeta && Object.keys(state.editingMeta).length ? state.editingMeta : null;
+      const meta = editingMeta
+        ? {...editingMeta, "Modified By": "PC v11", "Modified At": new Date().toLocaleString("sv-SE").slice(0, 16)}
+        : {App: `VTE Log Manager ${APP_VERSION}`, "Created At": new Date().toLocaleString("sv-SE").slice(0, 16)};
+      meta[VTECore.PROCESS_ID_KEY] = VTECore.keepProcessId(editingMeta, yymmdd);
       const sheet = VTECore.buildProcessLogSheet({isTooling, layers: rows, memo: $("#newMemo").value, version: APP_VERSION, meta});
       let dir = state.appDir;
       for (const part of VTECore.processLogFolder(isTooling, yymmdd)) dir = await ensureDir(dir, part);

@@ -703,6 +703,18 @@
   function timeTag(d = new Date()) {
     return `${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}`;
   }
+  // Process ID for the OLED measurement database: VTE-A222-YYMMDD-HHMM, issued once when a log is
+  // first saved. Editing an existing log keeps the original id so the database key stays stable.
+  const PROCESS_ID_KEY = "Process ID";
+  function processId(dateYYMMDD, hhmm = timeTag()) {
+    const date = String(dateYYMMDD || "").trim();
+    if (!/^\d{6}$/.test(date) || !/^\d{4}$/.test(String(hhmm))) return "";
+    return `VTE-A222-${date}-${hhmm}`;
+  }
+  function keepProcessId(existingMeta, dateYYMMDD, hhmm = timeTag()) {
+    const prior = existingMeta && String(existingMeta[PROCESS_ID_KEY] || "").trim();
+    return prior || processId(dateYYMMDD, hhmm);
+  }
 
   // Calibration/<material>/<date>.xlsx. Input values are raw form strings.
   function buildCalibrationSheet(f) {
@@ -752,7 +764,7 @@
     calibrationMetaFromRows, calibrationMeasurementsFromRows, matchCalibration, noCalibration, comboLabel, mergeComboOption,
     buildFileIndex, buildCalibrationIndex,
     DRAFT_LAYER_DEFAULTS, draftLayerToEditorRow, draftLayersToEditorRows, tagCodepRows, codepShare, CODEP_COL, readSheetMeta, draftLayersFromRows, presetToDraftLayers, draftLayersToPresetRows,
-    buildPresetWorkbookSheets, safeFileName, pathSafe, timeTag,
+    buildPresetWorkbookSheets, safeFileName, pathSafe, timeTag, PROCESS_ID_KEY, processId, keepProcessId,
     setAoa, buildProcessLogSheet, processLogFolder, buildCalibrationSheet, buildStructureSheet, structureRowsFromSheet
   };
 });

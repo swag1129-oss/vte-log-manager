@@ -49,10 +49,18 @@ const LAYERS = `
   addLayerRow({material: "Al", port: "M-1", mask: "3", tooling_factor: "", ratio: "0.5", target_actual: "100", rate: "1", pressure_pair: "", power_pair: "", source_temp_pair: "-", notes: ""});
 `;
 
-async function compare(label, setup, action) {
+// v11 writes row-1 metadata (App, Created At, Process ID) that v10 never wrote, and Created At moves
+// with the clock. `ignoreMeta` drops those cells so the rest of the sheet is still compared exactly.
+const EXTRA_COL = 22;
+// A wider row 1 also pads every other row, so trailing empties are trimmed after stripping.
+const trimEnd = row => { const out = row.slice(); while (out.length && (out.at(-1) === null || out.at(-1) === undefined || out.at(-1) === "")) out.pop(); return out; };
+const withoutMeta = out => ({...out, rows: out.rows.map((row, i) => trimEnd(i === 0 ? row.slice(0, EXTRA_COL) : row))});
+
+async function compare(label, setup, action, {ignoreMeta = false} = {}) {
   const a = await capture(V10, setup, action);
   const b = await capture(DIST, setup, action);
-  assert.deepEqual(unversion(b), unversion(a), `${label}: v11 output differs from v10`);
+  const strip = ignoreMeta ? withoutMeta : (v => v);
+  assert.deepEqual(unversion(strip(b)), unversion(strip(a)), `${label}: v11 output differs from v10`);
   return b;
 }
 
@@ -64,8 +72,11 @@ async function compare(label, setup, action) {
       el("#newLogType").value = type;
       el("#newMemo").value = "  shared memo ";
       vm(ctx, LAYERS);
-    }, "createLog(true)");
+    }, "createLog(true)", {ignoreMeta: true});
     assert.match(out.name, /_v11\.xlsx$/);
+    // A new PC log must carry a process id for the measurement database, using the log's own date.
+    const meta = require("../src/core/vte-core.js").readSheetMeta(out.rows);
+    assert.match(meta["Process ID"], /^VTE-A222-260916-\d{4}$/, `${type}: PC log issues a process id`);
   }
   const cal = await compare("calibration", (ctx) => {
     ctx.__form = {"재료명": " TAPC ", "날짜(YYMMDD)": "260916", "소스번호": " O-5 ", "고정TF": "20", "Monitor두께": "50", "Actual두께(ellipsometer)": "22.4",

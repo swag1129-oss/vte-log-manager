@@ -20,13 +20,14 @@
     const collapsed = localStorage.getItem("vte.structureCollapsed") === "1";
     $("#structurePanel").classList.toggle("collapsed", collapsed);
     $("#structureToggle").textContent = `구조 ${items.length}층 ${collapsed ? "▾" : "▴"}`;
-    $("#structureBody").innerHTML = `<div class="stack-sub">기판</div>` + items.map(it => {
+    // `items` is bottom layer first; the panel draws top layer first, so emit in reverse visual order.
+    $("#structureBody").innerHTML = (totalText ? `<div class="stack-total">${esc(totalText)}</div>` : "") + items.slice().reverse().map(it => {
       const thick = it.parts.reduce((sum, p) => sum + (p.thick || 0), 0);
       const height = Math.round(Math.min(64, Math.max(18, 14 + Math.sqrt(thick) * 5)));
       return `<div class="stack-layer ${it.state || ""}" data-jump="${it.jump}" style="min-height:${height}px">
         <div class="parts">${it.parts.map(p => `<span class="part" style="background:${colorOf(p.material)}">${esc(p.material)}${p.label ? ` ${esc(p.label)}` : ""}</span>`).join("")}</div>
         <span class="mask">${it.mask ? `M${esc(it.mask)}` : ""}</span></div>`;
-    }).join("") + (totalText ? `<div class="stack-total">${esc(totalText)}</div>` : "");
+    }).join("") + `<div class="stack-sub">기판</div>`;
   }
   function bind() {
     $("#structureToggle").onclick = () => {
