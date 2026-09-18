@@ -45,12 +45,12 @@ const stacks = (out, layers) => out.variants.map(v => v.layerIndexes.map(i => la
   assert.deepEqual(stacks(out, layers), [["HAT-CN", "Al"]]);
 }
 
-// The same material through a different mask patterns differently, so those are separate kinds.
+// Which mask a layer passed through does not make a different kind: the stack is what counts.
 {
   const layers = [layer("Al", 1)];
   const out = Core.sampleVariants(layers, {1: "OOOMMMBBB".split("")}, "P");
-  assert.deepEqual(cells(out), [[1, 2, 3], [4, 5, 6]], "organic-masked and metal-masked differ");
-  assert.deepEqual(out.unused, [7, 8, 9]);
+  assert.deepEqual(cells(out), [[1, 2, 3, 4, 5, 6]], "organic-masked and metal-masked are one kind");
+  assert.deepEqual(out.unused, [7, 8, 9], "only the blocked cells are left out");
 }
 
 // Rows without a material are placeholders in the editor and take part in nothing.
@@ -80,4 +80,4 @@ assert.deepEqual(ids(Core.sampleVariants([layer("A", 1)], Core.maskHoldersFromMe
   assert.deepEqual(Core.samplesToMeta(layers, Core.maskHoldersFromMeta(null)), {[Core.SAMPLES_KEY]: ""});
 }
 
-console.log("PASS; three kinds from the drawing, stable numbering, unused cells, mask type splits, empty rows");
+console.log("PASS; three kinds from the drawing, stable numbering, unused cells, mask type does not split, empty rows");

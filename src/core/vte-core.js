@@ -83,14 +83,13 @@
     const byKey = new Map();
     const unused = [];
     for (let cell = 1; cell <= MASK_CELL_COUNT; cell++) {
-      // A layer reaches this cell unless the holder it used blocks the cell; the mask fitted there
-      // is part of the stack, since the same material through a different mask patterns differently.
-      const got = rows.filter(({layer}) => cellsOf(layer.mask)[cell - 1] !== "B")
-        .map(({layer, at}) => ({at, token: cellsOf(layer.mask)[cell - 1]}));
+      // A layer reaches this cell unless the holder it used blocks the cell. Which mask it passed
+      // through does not make a different kind of sample — the stack of layers is what counts.
+      const got = rows.filter(({layer}) => cellsOf(layer.mask)[cell - 1] !== "B").map(({at}) => at);
       if (!got.length) { unused.push(cell); continue; }
-      const key = got.map(g => `${g.at}${g.token}`).join("|");
+      const key = got.join("|");
       if (byKey.has(key)) byKey.get(key).cells.push(cell);
-      else byKey.set(key, {cells: [cell], layerIndexes: got.map(g => g.at)});
+      else byKey.set(key, {cells: [cell], layerIndexes: got});
     }
     // Numbered by the first cell that carries each kind, so the ids do not shuffle between saves.
     const variants = [...byKey.values()].sort((a, b) => a.cells[0] - b.cells[0]);
