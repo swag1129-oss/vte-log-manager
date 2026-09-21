@@ -156,6 +156,8 @@
       await app.store.set("draft", draft);
     }
     function persist() {
+      // Any edit makes the last save stale, so the confirmation goes away with it.
+      $("#editorSaved").textContent = "";
       $("#draftState").textContent = "저장 중…";
       clearTimeout(saveTimer);
       saveTimer = setTimeout(async () => {
@@ -597,6 +599,7 @@
     async function uploadDraft(mode = "close") {
       const d = draft;
       const err = msg => { $("#editorError").textContent = msg; };
+      $("#editorSaved").textContent = "";
       if (!/^\d{6}$/.test(d.date)) return err("날짜를 YYMMDD 6자리로 입력해 주세요.");
       const layers = d.layers.filter(l => String(l.material || "").trim());
       if (!layers.length) return err("재료가 입력된 레이어가 하나 이상 필요해요.");
@@ -649,7 +652,10 @@
           await app.store.set("draft", d);
         }
         await loadModel();
-        status(`저장됨: ${saved.relPath.split("/").pop()}`);
+        const fileName = saved.relPath.split("/").pop();
+        status(`저장됨: ${fileName}`);
+        // Staying on the recording screen, nothing else on it changes, so say so where the button is.
+        if (mode !== "close") $("#editorSaved").textContent = `저장됨 ${nowText().slice(11)} · ${fileName}`;
         const log = app.model.logs.find(l => l.realPath === saved.relPath);
         if (mode === "close" && editing && !inPlace) alert(`새 파일로 저장했어요.\n원래 파일(${editing.relPath.split("/").pop()})은 그대로 있어요.`);
         if (mode !== "close") { renderEditor(); return; }

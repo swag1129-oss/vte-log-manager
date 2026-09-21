@@ -113,7 +113,10 @@ select { width: 100%; border: 1px solid var(--line); border-radius: 10px; paddin
 .phase-head .time { color: var(--muted); font-weight: 400; }
 .calc-hint { font-size: 12px; color: var(--ok); min-height: 16px; }
 .sticky-actions { position: sticky; bottom: calc(60px + var(--safe-bottom)); z-index: 3; padding: 6px 0 2px; background: linear-gradient(rgba(244,246,249,0), var(--bg) 30%); }
-.sticky-actions .error:empty { display: none; }
+.sticky-actions .error:empty, .sticky-actions .saved:empty { display: none; }
+/* Confirmation for a save that keeps you on the recording screen, where nothing else changes. */
+.saved { color: var(--ok); font-weight: 600; white-space: pre-wrap; }
+.sticky-actions .row button { box-shadow: 0 4px 12px rgba(31,78,121,.25); }
 .sticky-actions button.wide { margin-bottom: 0; box-shadow: 0 4px 12px rgba(31,78,121,.25); }
 #editor > .card:first-child .meta { padding-right: 150px; }
 .badge.test { background: #fef0c7; color: #93370d; }

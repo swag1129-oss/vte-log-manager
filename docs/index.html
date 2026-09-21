@@ -103,11 +103,8 @@
         <div id="layerCards"></div>
         <div class="row add-row"><button class="wide" id="addLayerBtn">+ 레이어 추가</button><button class="wide" id="addCodepBtn">+ 공증착 추가</button></div>
         <div class="card">
-          <div class="row">
-            <button id="saveLogBtn">저장</button>
-            <button id="saveAsLogBtn">다른 이름으로 저장</button>
-          </div>
-          <p class="hint">저장한 뒤에도 이 화면에서 계속 기록할 수 있어요.</p>
+          <button class="wide" id="uploadBtn">Dropbox에 저장</button>
+          <p class="hint">저장하고 로그 화면으로 나가요. 기록을 끝낼 때 누르세요.</p>
           <div class="row">
             <button id="savePresetBtn">프리셋으로 저장</button>
             <button id="discardDraftBtn" class="danger">초안 버리기</button>
@@ -115,7 +112,11 @@
         </div>
         <div class="sticky-actions">
           <p class="error" id="editorError"></p>
-          <button class="primary wide" id="uploadBtn">Dropbox에 저장</button>
+          <p class="saved" id="editorSaved"></p>
+          <div class="row">
+            <button class="primary" id="saveLogBtn">저장</button>
+            <button id="saveAsLogBtn">다른 이름으로 저장</button>
+          </div>
         </div>
       </div>
       <datalist id="materialOptions"></datalist>
