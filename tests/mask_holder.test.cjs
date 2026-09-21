@@ -52,9 +52,16 @@ assert.ok(!Core.maskHolderIsDefault(mask1));
   assert.equal(Core.formatMaskHolder(Core.toggleMaskHolderCell(cells, 3, "O")), "OOOOBOBBO");
   // Switching the mask leaves the blocked cells alone.
   assert.equal(Core.formatMaskHolder(Core.setMaskHolderType(cells, "M")), "MMMBBMBBM");
-  // The complement is the usual second holder: exactly what the first one blocked.
-  assert.equal(Core.formatMaskHolder(Core.invertMaskHolder(cells, "M")), "BBBMMBMMB");
-  assert.deepEqual(Core.maskHolderCoverage(Core.invertMaskHolder(cells, "M")), [4, 5, 7, 8]);
+  // The complement is the usual second holder: exactly what the first one blocked. Taken from
+  // another holder's cells, this is the "M1 반대" button — the second holder covers what the
+  // first blocked, and carries its own mask.
+  const mask2 = Core.invertMaskHolder(cells, "M");
+  assert.equal(Core.formatMaskHolder(mask2), "BBBMMBMMB");
+  assert.deepEqual(Core.maskHolderCoverage(mask2), [4, 5, 7, 8]);
+  assert.deepEqual(Core.maskHolderCoverage(cells).concat(Core.maskHolderCoverage(mask2)).sort((a, b) => a - b),
+    [1, 2, 3, 4, 5, 6, 7, 8, 9], "between them the two holders cover every substrate exactly once");
+  // Taking the opposite again gives the first arrangement back, in the second holder's mask.
+  assert.equal(Core.formatMaskHolder(Core.invertMaskHolder(mask2, "O")), Core.formatMaskHolder(cells));
 }
 
 // Round trip through the workbook alongside the other metadata.

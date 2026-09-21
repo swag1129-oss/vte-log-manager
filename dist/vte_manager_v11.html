@@ -1691,9 +1691,13 @@
           return `<button class="mask-cell ${cell.key}" data-mask="${mask}" data-cell="${i}"
             title="${escapeAttr(cell.label)}" aria-label="${mask}번 홀더 ${i + 1}칸: ${escapeAttr(cell.label)}">${token === "B" ? "―" : escapeHtml(cell.short)}</button>`;
         }).join("");
+        // Two holders are often complementary — the second covers exactly what the first blocked —
+        // so offer that in one click instead of re-entering all nine cells.
+        const others = VTECore.MASKS.filter(m => m !== mask && !VTECore.maskHolderIsDefault(state.maskHolders[m]))
+          .map(m => `<button data-mask="${mask}" data-opposite="${m}" title="Mask${m}이 막은 칸만 덮도록 맞춥니다">M${m} 반대</button>`).join("");
         return `<div class="mask-holder${used ? "" : " unused"}">
           <div class="mask-holder-head">Mask${mask}</div>
-          <div class="mask-type-row">${picker}<button data-invert="${mask}" title="블록과 사용 칸을 뒤집습니다">반전</button></div>
+          <div class="mask-type-row">${picker}<button data-invert="${mask}" title="블록과 사용 칸을 뒤집습니다">반전</button>${others}</div>
           <div class="mask-grid">${cells}</div></div>`;
       }).join("");
     }
@@ -2102,13 +2106,14 @@
         insertLayerAt(position === "end" ? state.layerRows.length : Number(position));
       };
       $("#maskHolders").onclick = e => {
-        const btn = e.target.closest("[data-cell], [data-type], [data-invert]");
+        const btn = e.target.closest("[data-cell], [data-type], [data-invert], [data-opposite]");
         if (!btn) return;
         const mask = btn.dataset.mask || btn.dataset.invert;
         if (btn.dataset.type) maskTypes[mask] = btn.dataset.type;
         const type = maskTypes[mask] || maskTypeOf(mask);
         if (btn.dataset.type) state.maskHolders[mask] = VTECore.setMaskHolderType(state.maskHolders[mask], type);
         else if (btn.dataset.invert) state.maskHolders[mask] = VTECore.invertMaskHolder(state.maskHolders[mask], type);
+        else if (btn.dataset.opposite) state.maskHolders[mask] = VTECore.invertMaskHolder(state.maskHolders[btn.dataset.opposite], type);
         else state.maskHolders[mask] = VTECore.toggleMaskHolderCell(state.maskHolders[mask], Number(btn.dataset.cell), type);
         renderMaskHolders();
       };

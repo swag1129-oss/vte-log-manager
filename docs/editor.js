@@ -279,6 +279,10 @@
           const cell = Core.MASK_CELLS.find(c => c.token === token);
           return `<button class="${token === type ? "active" : ""}" data-mask="${mask}" data-type="${token}">${esc(cell.short)}</button>`;
         }).join("");
+        // Two holders are often complementary — the second covers exactly what the first blocked —
+        // so offer that in one press instead of re-entering all nine cells.
+        const others = Core.MASKS.filter(m => m !== mask && !Core.maskHolderIsDefault(set[m]))
+          .map(m => `<button data-mask="${mask}" data-opposite="${m}">M${m} 반대</button>`).join("");
         const cells = set[mask].map((token, i) => {
           const cell = Core.MASK_CELLS.find(c => c.token === token);
           return `<button class="mask-cell ${cell.key}" data-mask="${mask}" data-cell="${i}"
@@ -289,6 +293,7 @@
           <div class="row">
             <div class="segmented mask-type">${picker}</div>
             <button data-invert="${mask}">반전</button>
+            ${others}
           </div>
           <div class="mask-grid">${cells}</div></div>`;
       }).join("");
@@ -299,7 +304,7 @@
         renderMaskHolders();
       };
       $("#maskHolders").onclick = e => {
-        const btn = e.target.closest("[data-cell], [data-type], [data-invert]");
+        const btn = e.target.closest("[data-cell], [data-type], [data-invert], [data-opposite]");
         if (!btn) return;
         const set = holders();
         const mask = btn.dataset.mask || btn.dataset.invert;
@@ -307,6 +312,7 @@
         const type = maskTypes[mask] || typeOf(mask);
         if (btn.dataset.type) set[mask] = Core.setMaskHolderType(set[mask], type);
         else if (btn.dataset.invert) set[mask] = Core.invertMaskHolder(set[mask], type);
+        else if (btn.dataset.opposite) set[mask] = Core.invertMaskHolder(set[btn.dataset.opposite], type);
         else set[mask] = Core.toggleMaskHolderCell(set[mask], Number(btn.dataset.cell), type);
         persist();
         renderMaskHolders();
