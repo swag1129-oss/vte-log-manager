@@ -258,8 +258,18 @@
     // The chosen type only needs remembering while every cell is blocked, where the cells cannot say.
     const maskTypes = {};
     const typeOf = mask => (maskTypes[mask] = Core.maskHolderType(holders()[mask], maskTypes[mask] || "."));
+    // The holders are set once per run, so the card folds away for the rest of the recording.
+    const maskCollapsed = () => localStorage.getItem("vte.maskCollapsed") === "1";
     function renderMaskHolders() {
       const set = holders();
+      const collapsed = maskCollapsed();
+      const summary = Core.MASKS
+        .filter(m => !Core.maskHolderIsDefault(set[m]))
+        .map(m => `M${m} ${Core.maskHolderCoverage(set[m]).join(",") || "없음"}`)
+        .join(" · ");
+      $("#maskToggle").innerHTML = `마스크 홀더 ${collapsed ? "▾" : "▴"} <span class="hint">${esc(collapsed ? summary || "전체 전면" : "칸을 눌러 막아요")}</span>`;
+      $("#maskHolders").hidden = collapsed;
+      if (collapsed) return;
       $("#maskHolders").innerHTML = Core.MASKS.map(mask => {
         const used = draft.layers.some(l => String(l.mask) === mask && String(l.material || "").trim());
         const type = typeOf(mask);
@@ -282,6 +292,10 @@
       }).join("");
     }
     function bindMaskHolders() {
+      $("#maskToggle").onclick = () => {
+        localStorage.setItem("vte.maskCollapsed", maskCollapsed() ? "0" : "1");
+        renderMaskHolders();
+      };
       $("#maskHolders").onclick = e => {
         const btn = e.target.closest("[data-cell], [data-type], [data-invert]");
         if (!btn) return;
@@ -573,7 +587,14 @@
     }
 
     // ---------- save ----------
-    async function uploadDraft() {
+    /*
+     * `mode` decides what happens after the file lands in Dropbox:
+     *   "close"  — the sticky button: opens the saved log, the way finishing a recording works.
+     *   "stay"   — save and keep recording. The draft binds to the file it just wrote, so saving
+     *              again overwrites it instead of leaving a trail of copies.
+     *   "saveAs" — write a new file under a fresh name and keep recording in that one.
+     */
+    async function uploadDraft(mode = "close") {
       const d = draft;
       const err = msg => { $("#editorError").textContent = msg; };
       if (!/^\d{6}$/.test(d.date)) return err("날짜를 YYMMDD 6자리로 입력해 주세요.");
@@ -597,7 +618,8 @@
       const newPath = `${savePrefix()}${Core.processLogFolder(isTooling, d.date).join("/")}/${Core.pathSafe(sheet.fileName)}`;
       // Edit in place only in the matching mode (test file in test mode, real file otherwise) and while the file still exists;
       // a file deleted since opening is saved as a new file instead of being silently recreated.
-      const inPlace = editing && editing.test === testMode() && editing.origType === d.type && editing.origDate === d.date && Boolean(fileRev(editing.realPath));
+      const inPlace = mode !== "saveAs" && editing && editing.test === testMode()
+        && editing.origType === d.type && editing.origDate === d.date && Boolean(fileRev(editing.realPath));
       const job = {kind: "log", label: sheet.fileName, relPath: inPlace ? editing.realPath : newPath, rev: inPlace ? fileRev(editing.realPath) : null,
         fallbackPath: newPath, what: "로그", bytes: toWorkbook([sheet]), draft: d};
       const queueDraft = async () => {
@@ -607,23 +629,36 @@
         render();
         alert("인터넷이 안 돼서 폰에 보관했어요.\n연결되면 자동으로 Dropbox에 올려요. (위쪽 '업로드 대기'에서 확인)");
       };
-      if (!navigator.onLine) return queueDraft();
-      $("#uploadBtn").disabled = true;
+      // Queuing hands the draft over to the upload queue, which would end the recording; offline,
+      // only the closing save can do that.
+      if (!navigator.onLine) {
+        if (mode === "close") return queueDraft();
+        return err("오프라인이라 지금은 저장할 수 없어요. 계속 기록하다가 연결되면 다시 눌러 주세요.");
+      }
+      const buttons = ["#uploadBtn", "#saveLogBtn", "#saveAsLogBtn"].map(sel => $(sel));
+      buttons.forEach(b => { b.disabled = true; });
       try {
         const saved = await uploadFile(job.relPath, job.bytes, {rev: job.rev, what: "로그", fallbackPath: newPath});
         if (!saved) return;
-        draft = null;
-        await app.store.set("draft", null);
+        if (mode === "close") {
+          draft = null;
+          await app.store.set("draft", null);
+        } else {
+          // Keep recording against the file just written, so the next save updates it.
+          d.editing = {realPath: saved.relPath, relPath: saved.relPath, test: testMode(), meta, origType: d.type, origDate: d.date};
+          await app.store.set("draft", d);
+        }
         await loadModel();
         status(`저장됨: ${saved.relPath.split("/").pop()}`);
         const log = app.model.logs.find(l => l.realPath === saved.relPath);
-        if (editing && !inPlace) alert(`새 파일로 저장했어요.\n원래 파일(${editing.relPath.split("/").pop()})은 그대로 있어요.`);
+        if (mode === "close" && editing && !inPlace) alert(`새 파일로 저장했어요.\n원래 파일(${editing.relPath.split("/").pop()})은 그대로 있어요.`);
+        if (mode !== "close") { renderEditor(); return; }
         if (log) openLog(log); else ctx.setTab("logs");
       } catch (e) {
         if (isNetworkError(e)) await queueDraft();
         else err(`저장 실패: ${e.message}`);
       } finally {
-        $("#uploadBtn").disabled = false;
+        buttons.forEach(b => { b.disabled = false; });
       }
     }
     async function savePreset() {
@@ -749,7 +784,9 @@
         renderEditor();
         VTEStack.scrollToEl($(`[data-card="${at}"]`));
       };
-      $("#uploadBtn").onclick = uploadDraft;
+      $("#uploadBtn").onclick = () => uploadDraft("close");
+      $("#saveLogBtn").onclick = () => uploadDraft("stay");
+      $("#saveAsLogBtn").onclick = () => uploadDraft("saveAs");
       $("#savePresetBtn").onclick = savePreset;
       $("#discardDraftBtn").onclick = async () => {
         if (!confirm("초안을 버릴까요? 저장하지 않은 입력은 사라져요.")) return;

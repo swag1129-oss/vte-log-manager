@@ -97,12 +97,17 @@
           <label>메모 (모든 레이어 Notes에 붙음)<input id="editorMemo"></label>
         </div>
         <div class="card">
-          <div class="meta"><span>마스크 홀더</span><span class="hint">칸을 눌러 바꿔요</span></div>
+          <button class="card-toggle" id="maskToggle">마스크 홀더 <span class="hint" id="maskSummary"></span></button>
           <div id="maskHolders"></div>
         </div>
         <div id="layerCards"></div>
         <div class="row add-row"><button class="wide" id="addLayerBtn">+ 레이어 추가</button><button class="wide" id="addCodepBtn">+ 공증착 추가</button></div>
         <div class="card">
+          <div class="row">
+            <button id="saveLogBtn">저장</button>
+            <button id="saveAsLogBtn">다른 이름으로 저장</button>
+          </div>
+          <p class="hint">저장한 뒤에도 이 화면에서 계속 기록할 수 있어요.</p>
           <div class="row">
             <button id="savePresetBtn">프리셋으로 저장</button>
             <button id="discardDraftBtn" class="danger">초안 버리기</button>
