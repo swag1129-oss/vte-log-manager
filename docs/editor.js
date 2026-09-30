@@ -157,6 +157,7 @@
     }
     function persist() {
       // Any edit makes the last save stale, so the confirmation goes away with it.
+      if (draft) draft.dirty = true;
       $("#editorSaved").textContent = "";
       $("#draftState").textContent = "저장 중…";
       clearTimeout(saveTimer);
@@ -166,13 +167,20 @@
         $("#draftState").textContent = "초안 저장됨";
       }, 250);
     }
+    // Leaving a draft only needs a question when something would be lost: a draft saved with no
+    // edits since (dirty === false) or with nothing typed is closed without asking.
     async function replaceDraftOk() {
-      if (!draft || !draft.layers.some(hasData)) return true;
-      return confirm("작성 중인 초안이 있어요. 버리고 새로 시작할까요?");
+      if (!draft || draft.dirty === false || !draft.layers.some(hasData)) return true;
+      return confirm("저장하지 않은 입력이 있어요. 버리고 계속할까요?");
+    }
+    async function closeDraft() {
+      draft = null;
+      await app.store.set("draft", null);
+      render();
     }
     async function startDraft({type, layers = [], preset = "", editing = null, date = Core.currentYYMMDD(), createdAt = nowText()}) {
       draft = {type, date, memo: "", preset, layers: layers.length ? layers : [{...Core.DRAFT_LAYER_DEFAULTS}], editing, createdAt,
-        maskHolders: Core.maskHoldersFromMeta(editing && editing.meta)};
+        maskHolders: Core.maskHoldersFromMeta(editing && editing.meta), dirty: false};
       if (!editing) draft.layers.forEach(l => autofill(l));
       await app.store.set("draft", draft);
       render();
@@ -655,6 +663,7 @@
         } else {
           // Keep recording against the file just written, so the next save updates it.
           d.editing = {realPath: saved.relPath, relPath: saved.relPath, test: testMode(), meta, origType: d.type, origDate: d.date};
+          d.dirty = false;
           await app.store.set("draft", d);
         }
         await loadModel();
@@ -802,10 +811,14 @@
       $("#savePresetBtn").onclick = savePreset;
       $("#discardDraftBtn").onclick = async () => {
         if (!confirm("초안을 버릴까요? 저장하지 않은 입력은 사라져요.")) return;
-        draft = null;
-        await app.store.set("draft", null);
-        render();
+        await closeDraft();
       };
+      // Like File > New: back to the start screen, asking only if there is unsaved input.
+      $("#newLogBtn").onclick = async () => { if (await replaceDraftOk()) await closeDraft(); };
+      // Like File > Open: pick a log from the list and press 수정 to load it here.
+      const openLogList = () => { ctx.setTab("logs"); status("불러올 로그를 골라 '수정'을 누르세요"); };
+      $("#openLogBtn").onclick = openLogList;
+      $("#openLogStartBtn").onclick = openLogList;
       const cards = $("#layerCards");
       cards.addEventListener("input", e => {
         const el = e.target, i = Number(el.dataset.i), k = el.dataset.k;

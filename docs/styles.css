@@ -211,3 +211,7 @@ input, select, textarea { font-size: 16px; }
 .codep-member .meta button { min-height: 30px; padding: 2px 10px; }
 .codep-sub { margin: 8px 0 2px; font-size: 13px; font-weight: 700; }
 .codep-sub .port { color: var(--muted); font-weight: 600; }
+/* File > New / Open at the top of the editor, kept small so they do not compete with recording. */
+.file-actions { margin-bottom: 8px; }
+.file-actions button { flex: 1; min-height: 34px; font-size: 13px; padding: 4px 8px; }
+#openLogStartBtn { margin-top: 10px; }
