@@ -23,7 +23,7 @@
     const savePrefix = () => (testMode() ? TEST_PREFIX : "");
     // ---------- co-deposition groups ----------
     // A co-dep card is consecutive layers sharing `codep`; these fields are kept identical across its members.
-    const SHARED_KEYS = ["mask", "codep_total", "started_at", "ended_at", "started_ms", "ended_ms", "start_pressure", "end_pressure", "notes", "collapsed", "settings_open"];
+    const SHARED_KEYS = ["mask", "codep_total", "codep_rate", "started_at", "ended_at", "started_ms", "ended_ms", "start_pressure", "end_pressure", "notes", "collapsed", "settings_open"];
     function blocks() {
       const out = [];
       draft.layers.forEach((l, i) => {
@@ -39,7 +39,12 @@
     function syncCodep(i) {
       const members = blockOf(i).map(j => draft.layers[j]);
       if (!members[0].codep) return;
-      for (const m of members) { m.target_actual = Core.codepShare(members, m); recalcMonitor(m); }
+      for (const m of members) {
+        m.target_actual = Core.codepShare(members, m);
+        // Only a typed group rate overrides each member's rate, so a preset's rates survive untouched.
+        if (String(m.codep_rate || "").trim()) m.target_rate = Core.codepShareOf(members, m, "codep_rate");
+        recalcMonitor(m);
+      }
     }
     // Actual deposition shares from the typed monitor rates (rate × ratio), to catch a drifting doping ratio.
     function dopingText(idx) {
@@ -433,17 +438,26 @@
       };
       document.body.appendChild(sheet);
     }
+    // The rate to dial in on the thickness monitor: the target actual rate divided by the ratio,
+    // exactly as the monitor thickness is the target thickness divided by the ratio.
+    function rateLine(l) {
+      if (!String(l.target_rate || "").trim()) return "";
+      const mon = Core.calcMonitorRate(l.target_rate, l.ratio);
+      return `레이트 ${fmt(l.target_rate, 3)} → 모니터 ${mon === null ? "? (ratio 필요)" : fmt(mon, 3)} Å/s`;
+    }
     function settingsLine(l) {
       return [l.port || "소스?", `TF ${l.tooling_factor || "?"}`].join(" · ");
     }
     function placeholderFor(l, i, k) {
-      // Power and temperature depend on the source, so their hints come from the last run of this material on this source.
-      if (k === "start_power" || k === "start_temp") {
+      // Power, temperature and rate depend on the material and source, so their hints come from the
+      // last run of this material on this source. The previous layer's rate belonged to another
+      // material and says nothing about this one.
+      if (k === "start_power" || k === "start_temp" || k === "start_rate") {
         const hit = historyFor(l).find(h => Core.toFloat(h[k]) !== null);
         return hit ? `placeholder="지난 ${esc(fmt(Core.toFloat(hit[k])))}"` : "";
       }
       const prev = draft.layers[blockOf(i)[0] - 1] || {};
-      const from = {start_pressure: "end_pressure", start_rate: "end_rate"}[k];
+      const from = {start_pressure: "end_pressure"}[k];
       return from && prev[from] ? `placeholder="이전 ${esc(prev[from])}"` : "";
     }
     const MEASURES = {pressure: ["압력", "text", "×10⁻⁷"], rate: ["레이트", "decimal", "Å/s"], power: ["파워", "decimal", ""], temp: ["온도", "decimal", "°C"]};
@@ -451,7 +465,7 @@
       const [label, mode, unit] = MEASURES[k];
       return `
             <div class="measure-row">
-              ${k === "power" || k === "temp"
+              ${k === "power" || k === "temp" || k === "rate"
                 ? `<button class="measure-label link" data-act="history" data-i="${i}">${label}${unit ? `<small>${unit}</small>` : ""}<small>지난 기록 ›</small></button>`
                 : `<span class="measure-label">${label}${unit ? `<small>${unit}</small>` : ""}</span>`}
               <input data-i="${i}" data-k="start_${k}" inputmode="${mode}" value="${esc(l[`start_${k}`] || "")}" ${placeholderFor(l, i, `start_${k}`) || 'placeholder="시작"'} aria-label="${label} 시작">
@@ -493,7 +507,7 @@
               ${input("monitor", "모니터(nm)")}
             </div>
             <div class="calc-hint" data-hint="${i}">${l.monitor_manual ? "모니터 두께 직접 입력됨 (지우면 자동 계산)" : l.monitor ? "모니터 = 목표 ÷ ratio" : ""}</div>
-            <div class="grid2">${input("target_rate", "목표 실제 레이트(Å/s)")}<span></span></div>
+            <div class="grid2">${input("target_rate", "목표 실제 레이트(Å/s)")}<span class="calc-hint rate-hint" data-rate="${i}">${esc(rateLine(l))}</span></div>
           </div>
           <div class="phase">
             <div class="measure-head">
@@ -528,6 +542,10 @@
               <span class="codep-badge">공증착</span>
               <label class="hero-target"><input data-i="${i}" data-k="codep_total" inputmode="decimal" value="${esc(l.codep_total || "")}" placeholder="합계" aria-label="공증착 전체 목표 두께"><small>nm (목표 합계)</small></label>
             </div>
+            <div class="hero-row">
+              <span></span>
+              <label class="hero-target"><input data-i="${i}" data-k="codep_rate" inputmode="decimal" value="${esc(l.codep_rate || "")}" placeholder="합계" aria-label="공증착 전체 목표 레이트"><small>Å/s (목표 합계 레이트)</small></label>
+            </div>
             ${members.map(([j, m]) => `
             <div class="codep-line">
               <span class="codep-name"><span class="mat">${esc(m.material || "재료?")}</span> <small>${esc(m.vol || "?")}%</small></span>
@@ -535,7 +553,8 @@
               <span class="hero-arrow">→</span>
               <span class="codep-monitor"><span data-hero="${j}">${esc(heroText(m))}</span><small>nm</small></span>
             </div>
-            <div class="hero-sub" data-hero-sub="${j}">${esc(heroSub(m))}</div>`).join("")}
+            <div class="hero-sub" data-hero-sub="${j}">${esc(heroSub(m))}</div>
+            <div class="hero-sub rate-hint" data-rate="${j}">${esc(rateLine(m))}</div>`).join("")}
           </div>
           <button class="settings-toggle" data-act="settings" data-i="${i}">${settingsOpen ? "설정 접기 ▴" : `설정 ✎ ${esc(members.map(([, m]) => `${m.port || "소스?"} ${m.vol || "?"}%`).join(" · "))}`}</button>
           <div class="settings" ${settingsOpen ? "" : "hidden"}>
@@ -826,7 +845,7 @@
         const layer = draft.layers[i];
         if (k === "material") { layer.material = el.value; persist(); return; }
         if (SHARED_KEYS.includes(k)) setShared(i, k, el.value); else layer[k] = el.value;
-        if (layer.codep && (k === "codep_total" || k === "vol" || k === "ratio" || k === "monitor")) {
+        if (layer.codep && (k === "codep_total" || k === "codep_rate" || k === "vol" || k === "ratio" || k === "monitor")) {
           if (k === "monitor") { layer.monitor_manual = el.value.trim() !== ""; recalcMonitor(layer); } else syncCodep(i);
           for (const j of blockOf(i)) {
             const m = draft.layers[j];
@@ -835,6 +854,8 @@
             if (hero) hero.textContent = heroText(m);
             if (sub) sub.textContent = heroSub(m);
             if (mon && !m.monitor_manual && j !== i) mon.value = m.monitor;
+            const rate = $(`[data-rate="${j}"]`);
+            if (rate) rate.textContent = rateLine(m);
           }
         }
         if (layer.codep && /rate$|^ratio$|^vol$/.test(k)) {
@@ -846,6 +867,10 @@
           recalcMonitor(layer);
           const mon = $(`input[data-i="${i}"][data-k="monitor"]`);
           if (mon && !layer.monitor_manual) mon.value = layer.monitor;
+        }
+        if (!layer.codep && (k === "target_rate" || k === "ratio")) {
+          const rate = $(`[data-rate="${i}"]`);
+          if (rate) rate.textContent = rateLine(layer);
         }
         if (["monitor", "target_actual", "ratio", "target_rate"].includes(k)) {
           const hero = $(`[data-hero="${i}"]`), sub = $(`[data-hero-sub="${i}"]`);
@@ -869,7 +894,7 @@
           applyCombo(layer, el.value.trim());
           autofill(layer, {force: true});
         }
-        else if (k === "vol" || k === "codep_total" || k === "monitor") { persist(); patchCard(i); renderStructure(); return; }
+        else if (k === "vol" || k === "codep_total" || k === "codep_rate" || k === "monitor") { persist(); patchCard(i); renderStructure(); return; }
         else if (k === "port" || k === "tooling_factor") { layer[k] = el.value; autofill(layer, {force: true}); }
         else if (k === "mask") setShared(i, "mask", el.value);
         else return;

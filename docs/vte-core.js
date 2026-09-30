@@ -685,12 +685,16 @@
     return groups;
   }
   // Each member's target thickness is its volume share of the group total.
-  function codepShare(members, member) {
+  // A co-dep group splits a group total by volume fraction. `totalKey` picks which total: the
+  // target thickness (codep_total) or the target actual rate (codep_rate). A film's volume fraction
+  // is its share of the combined thickness growth, so the same split applies to both.
+  function codepShareOf(members, member, totalKey) {
     const vols = members.map(m => toFloat(m.vol) ?? 0), sum = vols.reduce((a, b) => a + b, 0);
-    const total = toFloat(member.codep_total);
+    const total = toFloat(member[totalKey]);
     if (total === null || !sum) return "";
     return fmt(total * (toFloat(member.vol) ?? 0) / sum, 4);
   }
+  const codepShare = (members, member) => codepShareOf(members, member, "codep_total");
   const str = v => (v === null || v === undefined ? "" : String(v).trim());
   const joinPair = (a, b) => (str(a) || str(b) ? `${str(a)}/${str(b)}` : "");
   // Editor rows carrying `codep`/`vol` get the file marker and the notes tag (phone drafts and desktop edits of phone logs).
@@ -870,7 +874,7 @@
     MASK_TYPE_TOKENS, maskHolderType, setMaskHolderType, toggleMaskHolderCell, invertMaskHolder,
     SAMPLE_ID_SUFFIX, SAMPLES_KEY, sampleVariantId, sampleVariants, samplesToMeta, STRUCTURE_KEYS, STRUCTURE_DEFAULTS,
     toFloat, fmt, dateStrFromName, splitPair, pressureX1e7, sameNumeric, parseDateKey, displayDate, safeSheetTitle,
-    calcRequiredMonitor, calcMonitorRate, getCell, norm, currentYYMMDD, shapeRows,
+    calcRequiredMonitor, calcMonitorRate, codepShareOf, getCell, norm, currentYYMMDD, shapeRows,
     parseProcessRows,
     updateMeasurementHeaderMap, rowHasDepositionContext, measurementFromRow, findMeasurementHeader, pickCoValue,
     layeredToolingMeasurements, latestOf, legacyCalibrationMeta, legacyCalibrationMeasurements, emptyCalibrationMeta,
