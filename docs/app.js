@@ -4,7 +4,7 @@
   const CONFIG = {
     appKey: "5rz8t9p1imu4wa9",
     defaultRoot: "/NEXT LAB/Log/A222/VTE log/VTE_MANAGER",
-    version: "2026-09-30-d0946050"
+    version: "2026-10-12-bdb3a934"
   };
   const LS = {author: "vte.author", root: "vte.root"};
   const {fmt, displayDate, calcRequiredMonitor, calcMonitorRate} = VTECore;
@@ -28,6 +28,7 @@
     $("#tabbar").hidden = !main;
     $("#syncBtn").hidden = !main;
     $("#structurePanel").hidden = !((screen === "record" && editor?.hasDraft()) || screen === "log-detail");
+    $("#startPanel").hidden = $("#structurePanel").hidden;
     window.scrollTo(0, 0);
   }
   function setTab(tab) {
@@ -188,6 +189,7 @@
       if (it.co && last && last.co === it.co && last.parts.length < it.co.split(":").length) last.parts.push(...it.parts);
       else merged.push({...it, parts: [...it.parts]});
     }
+    VTEStack.renderStart(app.model.startConditions(allLayers.flatMap(l => String(l.material).split(":")).map(m => m.trim()).filter(Boolean)));
     VTEStack.render(merged, {
       totalText: items.length ? `총 ${fmt(total, 1) || 0} nm (${hasTargets ? "목표" : "모니터"})` : "",
       variants,

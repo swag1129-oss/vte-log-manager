@@ -42,7 +42,26 @@
         <span class="mask">${it.mask ? `M${esc(it.mask)}` : ""}</span></div>`;
     }).join("") + `<div class="stack-sub">기판</div>`;
   }
+  // rows: [{material, power, temp, count, used, latest, powerRange, tempRange}] from VTEData startConditions; the current structure's materials come first.
+  function renderStart(rows) {
+    const fmtN = v => (v === null || v === undefined ? "–" : String(Math.round(v * 100) / 100));
+    const collapsed = localStorage.getItem("vte.startCollapsed") !== "0";
+    $("#startPanel").classList.toggle("collapsed", collapsed);
+    $("#startToggle").textContent = `증착시작 ${rows.length} ${collapsed ? "▾" : "▴"}`;
+    $("#startBody").innerHTML = rows.length ? `<div class="start-head">rate≈0.1 Å/s 시작값</div>` + rows.map(r => r.count
+      ? `<div class="start-row" title="최근 ${r.used}건 중앙값 · power ${r.powerRange ? r.powerRange.join("~") : "–"} · temp ${r.tempRange ? r.tempRange.join("~") : "–"}">
+          <b style="background:${colorOf(r.material)}">${esc(r.material)}</b>
+          <span>P ${fmtN(r.power)} · T ${fmtN(r.temp)}°C</span>
+          <small>${r.count}건 · ${esc(r.latest)}</small></div>`
+      : `<div class="start-row empty"><b style="background:${colorOf(r.material)}">${esc(r.material)}</b><span>데이터 없음</span></div>`).join("") : `<div class="start-head">데이터 없음</div>`;
+  }
   function bind() {
+    $("#startToggle").onclick = () => {
+      const next = localStorage.getItem("vte.startCollapsed") !== "0" ? "0" : "1";
+      localStorage.setItem("vte.startCollapsed", next);
+      $("#startPanel").classList.toggle("collapsed", next === "1");
+      $("#startToggle").textContent = $("#startToggle").textContent.replace(/[▾▴]$/, next === "1" ? "▾" : "▴");
+    };
     $("#structureToggle").onclick = () => {
       const next = localStorage.getItem("vte.structureCollapsed") === "1" ? "0" : "1";
       localStorage.setItem("vte.structureCollapsed", next);
@@ -65,5 +84,5 @@
       .filter(b => b && !b.hidden).reduce((h, b) => h + b.getBoundingClientRect().height, 0);
     window.scrollTo({top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - bars - 8), behavior: "smooth"});
   }
-  root.VTEStack = {render, bind, colorOf, scrollToEl};
+  root.VTEStack = {render, renderStart, bind, colorOf, scrollToEl};
 })(typeof globalThis !== "undefined" ? globalThis : this);

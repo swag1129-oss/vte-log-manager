@@ -204,7 +204,7 @@
       recalcMonitor(layer);
     }
     function recalcMonitor(layer) {
-      if (layer.monitor_manual) return;
+      if (layer.monitor_manual || draft?.type === "툴링") return;
       const v = calcRequiredMonitor(layer.target_actual, layer.ratio);
       layer.monitor = v === null ? "" : fmt(v, 4);
     }
@@ -225,6 +225,7 @@
       $("#recordStart").hidden = Boolean(draft);
       $("#editor").hidden = !draft;
       $("#structurePanel").hidden = !draft || app.tab !== "record";
+      $("#startPanel").hidden = $("#structurePanel").hidden;
       if (draft) renderEditor(); else renderPresets();
       syncRunningState();
     }
@@ -357,6 +358,7 @@
       const layers = draft.layers.map((l, i) => (inKind(i) ? l : {...l, material: ""}));
       const groups = stackGroups(layers);
       const total = layers.reduce((sum, l) => sum + (String(l.material || "").trim() ? Core.toFloat(l.target_actual) || 0 : 0), 0);
+      VTEStack.renderStart(app.model.startConditions(draft.layers.flatMap(l => String(l.material || "").split(":")).map(m => m.trim()).filter(Boolean)));
       VTEStack.render(groups.map(g => ({
         parts: g.items.map(({l}) => ({material: l.material, thick: Core.toFloat(l.target_actual) || 0, label: Core.toFloat(l.target_actual) ? fmt(Core.toFloat(l.target_actual), 1) : ""})),
         mask: g.mask,
@@ -491,11 +493,13 @@
         <div class="body">
           <div class="hero">
             <div class="hero-row">
-              <label class="hero-target"><input data-i="${i}" data-k="target_actual" inputmode="decimal" value="${esc(l.target_actual || "")}" placeholder="목표" aria-label="목표 실제 두께"><small>nm (목표)</small></label>
+              ${isTooling
+                ? `<label class="hero-target"><input data-i="${i}" data-k="monitor" inputmode="decimal" value="${esc(l.monitor || "")}" placeholder="모니터" aria-label="모니터 두께"><small>nm (모니터 두께)</small></label>`
+                : `<label class="hero-target"><input data-i="${i}" data-k="target_actual" inputmode="decimal" value="${esc(l.target_actual || "")}" placeholder="목표" aria-label="목표 실제 두께"><small>nm (목표)</small></label>
               <span class="hero-arrow">→</span>
-              <span class="hero-value"><span data-hero="${i}">${esc(heroText(l))}</span><small>nm (모니터)</small></span>
+              <span class="hero-value"><span data-hero="${i}">${esc(heroText(l))}</span><small>nm (모니터)</small></span>`}
             </div>
-            <div class="hero-sub" data-hero-sub="${i}">${esc(heroSub(l))}</div>
+            ${isTooling ? "" : `<div class="hero-sub" data-hero-sub="${i}">${esc(heroSub(l))}</div>`}
           </div>
           <button class="settings-toggle" data-act="settings" data-i="${i}">${settingsOpen ? "설정 접기 ▴" : `설정 ✎ ${esc(settingsLine(l))}`}</button>
           <div class="settings" ${settingsOpen ? "" : "hidden"}>
@@ -504,9 +508,9 @@
               <label>소스<select data-i="${i}" data-k="port">${ports}</select></label>
               ${input("tooling_factor", "TF")}
               ${input("ratio", "Ratio")}
-              ${input("monitor", "모니터(nm)")}
+              ${isTooling ? "" : input("monitor", "모니터(nm)")}
             </div>
-            <div class="calc-hint" data-hint="${i}">${l.monitor_manual ? "모니터 두께 직접 입력됨 (지우면 자동 계산)" : l.monitor ? "모니터 = 목표 ÷ ratio" : ""}</div>
+            ${isTooling ? "" : `<div class="calc-hint" data-hint="${i}">${l.monitor_manual ? "모니터 두께 직접 입력됨 (지우면 자동 계산)" : l.monitor ? "모니터 = 목표 ÷ ratio" : ""}</div>`}
             <div class="grid2">${input("target_rate", "목표 실제 레이트(Å/s)")}<span class="calc-hint rate-hint" data-rate="${i}">${esc(rateLine(l))}</span></div>
           </div>
           <div class="phase">
@@ -540,7 +544,7 @@
           <div class="hero">
             <div class="hero-row">
               <span class="codep-badge">공증착</span>
-              <label class="hero-target"><input data-i="${i}" data-k="codep_total" inputmode="decimal" value="${esc(l.codep_total || "")}" placeholder="합계" aria-label="공증착 전체 목표 두께"><small>nm (목표 합계)</small></label>
+              ${isTooling ? "" : `<label class="hero-target"><input data-i="${i}" data-k="codep_total" inputmode="decimal" value="${esc(l.codep_total || "")}" placeholder="합계" aria-label="공증착 전체 목표 두께"><small>nm (목표 합계)</small></label>`}
             </div>
             <div class="hero-row">
               <span></span>
@@ -549,11 +553,13 @@
             ${members.map(([j, m]) => `
             <div class="codep-line">
               <span class="codep-name"><span class="mat">${esc(m.material || "재료?")}</span> <small>${esc(m.vol || "?")}%</small></span>
-              <span class="codep-actual" data-actual="${j}">${esc(m.target_actual || "—")}</span>
+              ${isTooling
+                ? `<label class="hero-target"><input data-i="${j}" data-k="monitor" inputmode="decimal" value="${esc(m.monitor || "")}" placeholder="모니터" aria-label="모니터 두께"><small>nm (모니터)</small></label>`
+                : `<span class="codep-actual" data-actual="${j}">${esc(m.target_actual || "—")}</span>
               <span class="hero-arrow">→</span>
-              <span class="codep-monitor"><span data-hero="${j}">${esc(heroText(m))}</span><small>nm</small></span>
+              <span class="codep-monitor"><span data-hero="${j}">${esc(heroText(m))}</span><small>nm</small></span>`}
             </div>
-            <div class="hero-sub" data-hero-sub="${j}">${esc(heroSub(m))}</div>
+            ${isTooling ? "" : `<div class="hero-sub" data-hero-sub="${j}">${esc(heroSub(m))}</div>`}
             <div class="hero-sub rate-hint" data-rate="${j}">${esc(rateLine(m))}</div>`).join("")}
           </div>
           <button class="settings-toggle" data-act="settings" data-i="${i}">${settingsOpen ? "설정 접기 ▴" : `설정 ✎ ${esc(members.map(([, m]) => `${m.port || "소스?"} ${m.vol || "?"}%`).join(" · "))}`}</button>
@@ -567,7 +573,7 @@
                 ${field(j, m, "tooling_factor", "TF")}
                 ${field(j, m, "vol", "부피비(%)")}
                 ${field(j, m, "ratio", "Ratio")}
-                ${field(j, m, "monitor", "모니터(nm)")}
+                ${isTooling ? "" : field(j, m, "monitor", "모니터(nm)")}
               </div>
             </div>`).join("")}
             ${members.length < 3 ? `<button class="wide" data-act="codep-add" data-i="${i}">+ 재료 추가</button>` : ""}

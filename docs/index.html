@@ -21,12 +21,18 @@
   </header>
   <div class="update-banner" id="updateBanner" hidden>새 버전이 있어요 <button id="updateBtn">적용</button></div>
   <div class="update-banner queue-banner" id="queueBanner" hidden><span id="queueText"></span> <button id="queueBtn">보기</button></div>
+  <div class="panel-dock">
+  <aside class="start-panel collapsed" id="startPanel" hidden>
+    <button class="structure-toggle" id="startToggle">증착시작 ▾</button>
+    <div class="start-body" id="startBody"></div>
+  </aside>
   <aside class="structure-panel collapsed" id="structurePanel" hidden>
     <button class="structure-toggle" id="structureToggle">구조 ▾</button>
     <div class="structure-tabs" id="structureTabs"></div>
     <div class="structure-cells hint" id="structureCells"></div>
     <div class="structure-body" id="structureBody"></div>
   </aside>
+  </div>
 
   <main>
     <!-- First run -->

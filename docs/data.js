@@ -97,6 +97,43 @@
       }
       return historyCache.get(key);
     }
+    // Power and source temperature at the moment deposition started (rate about 0.1 A/s), per material, from past logs.
+    // Median of up to `limit` newest runs; co-dep layers ("A:B" with "x/y" values) are split per material.
+    const startCache = new Map();
+    function startConditions(materialNames, {limit = 5} = {}) {
+      const median = a => { const s = a.slice().sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+      const parts = (v, n) => { const p = String(v ?? "").split("/").map(x => Core.toFloat(x)); return p.length === n ? p : n === 1 ? [Core.toFloat(v)] : Array(n).fill(null); };
+      const wanted = [...new Set(materialNames.map(m => String(m).trim()).filter(Boolean))];
+      const cacheKey = wanted.map(Core.norm).sort().join("|") + `|${limit}`;
+      if (!startCache.has(cacheKey)) {
+        const found = new Map(wanted.map(m => [Core.norm(m), []]));
+        for (const log of logs) {
+          const parsed = parseLog(log);
+          for (const [lm, items] of Object.entries(parsed.layers)) {
+            const mats = lm.split(":").map(x => x.trim());
+            if (!mats.some(m => found.has(Core.norm(m)))) continue;
+            for (const l of items) {
+              const rate = parts(l.rate, mats.length), power = parts(l.start_power ?? l.power, mats.length), temp = parts(l.start_temp ?? l.temp, mats.length);
+              mats.forEach((m, k) => {
+                const list = found.get(Core.norm(m));
+                if (!list || rate[k] === null || Math.abs(rate[k] - 0.1) > 0.02 || (power[k] === null && temp[k] === null)) return;
+                list.push({power: power[k], temp: temp[k], date: log.dateStr || "", dateKey: log.dateKey || 0});
+              });
+            }
+          }
+        }
+        startCache.set(cacheKey, wanted.map(m => {
+          const all = found.get(Core.norm(m)).sort((a, b) => b.dateKey - a.dateKey);
+          const use = all.slice(0, limit);
+          const nums = key => use.map(u => u[key]).filter(v => v !== null);
+          const pw = nums("power"), tp = nums("temp");
+          return {material: m, count: all.length, used: use.length, latest: all[0]?.date || "",
+            power: pw.length ? median(pw) : null, temp: tp.length ? median(tp) : null,
+            powerRange: pw.length ? [Math.min(...pw), Math.max(...pw)] : null, tempRange: tp.length ? [Math.min(...tp), Math.max(...tp)] : null};
+        }));
+      }
+      return startCache.get(cacheKey);
+    }
     function searchLogs({query = "", type = "", from = "", to = ""} = {}) {
       const q = query.trim().toLowerCase();
       const fromKey = Core.parseDateKey(from), toKey = Core.parseDateKey(to);
@@ -110,7 +147,7 @@
     }
 
     const rowsOf = realPath => rowsByPath.get(realPath) || null;
-    return {logs, presets, rowsOf, materials, filesByMaterial, parseLog, orderedLayers, sourceHistory, searchLogs, measurements, calibrationHistory, latestCalibration, comboOptions};
+    return {logs, presets, rowsOf, materials, filesByMaterial, parseLog, orderedLayers, sourceHistory, startConditions, searchLogs, measurements, calibrationHistory, latestCalibration, comboOptions};
   }
 
   return {createModel};
