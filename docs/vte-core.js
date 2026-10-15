@@ -723,6 +723,31 @@
       temp_start: str(l.start_temp), temp_end: str(l.end_temp), started_at: str(l.started_at), ended_at: str(l.ended_at)
     };
   }
+  // Thickness-monitor choices per layer (index in the saved layer list), kept in the log meta so reopening restores them.
+  const THICK_KEY = "ThickSensors";
+  function thickToMeta(layers) {
+    const items = [];
+    (layers || []).forEach((l, i) => {
+      if (!l.sensor_port) return;
+      items.push({i, s: l.sensor_port, t0: l.started_ms || 0, t1: l.ended_ms || 0, a: l.start_thk || "", b: l.end_thk || ""});
+    });
+    return {[THICK_KEY]: items.length ? JSON.stringify(items) : ""};
+  }
+  function thickFromMeta(meta, layers) {
+    let items = [];
+    try { items = JSON.parse((meta && meta[THICK_KEY]) || "[]"); } catch (e) { return layers; }
+    if (!Array.isArray(items)) return layers;
+    for (const it of items) {
+      const l = layers[it.i];
+      if (!l) continue;
+      l.sensor_port = String(it.s || "");
+      if (it.t0) l.started_ms = Number(it.t0);
+      if (it.t1) l.ended_ms = Number(it.t1);
+      if (it.a) l.start_thk = String(it.a);
+      if (it.b) l.end_thk = String(it.b);
+    }
+    return layers;
+  }
   // name=value pairs written across row 1 from column W.
   function readSheetMeta(rawRows) {
     const row = (rawRows || [])[0] || [];
@@ -880,7 +905,7 @@
     layeredToolingMeasurements, latestOf, legacyCalibrationMeta, legacyCalibrationMeasurements, emptyCalibrationMeta,
     calibrationMetaFromRows, calibrationMeasurementsFromRows, matchCalibration, noCalibration, comboLabel, mergeComboOption,
     buildFileIndex, buildCalibrationIndex,
-    DRAFT_LAYER_DEFAULTS, draftLayerToEditorRow, draftLayersToEditorRows, tagCodepRows, codepShare, CODEP_COL, readSheetMeta, draftLayersFromRows, presetToDraftLayers, draftLayersToPresetRows,
+    DRAFT_LAYER_DEFAULTS, draftLayerToEditorRow, draftLayersToEditorRows, tagCodepRows, codepShare, CODEP_COL, readSheetMeta, THICK_KEY, thickToMeta, thickFromMeta, draftLayersFromRows, presetToDraftLayers, draftLayersToPresetRows,
     buildPresetWorkbookSheets, safeFileName, pathSafe, timeTag, PROCESS_ID_KEY, processId, keepProcessId,
     setAoa, buildProcessLogSheet, processLogFolder, buildCalibrationSheet, buildStructureSheet, structureRowsFromSheet
   };

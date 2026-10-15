@@ -3,7 +3,8 @@
   "use strict";
   const KEY = "vte.thickUrl";
   const SENSORS = ["A", "B", "C", "D"];
-  const url = () => (localStorage.getItem(KEY) || "").trim().replace(/\/+$/, "");
+  const DEFAULT_URL = "https://thermalevaporator.tail95c053.ts.net";
+  const url = () => (localStorage.getItem(KEY) || DEFAULT_URL).trim().replace(/\/+$/, "");
   const enabled = () => Boolean(url());
 
   async function getJson(path, ms = 3500) {
@@ -23,14 +24,14 @@
   const live = async () => (await getJson("/live"))?.ports || null;
   async function range(port, fromMs, toMs) {
     const j = await getJson(`/range?port=${encodeURIComponent(port)}&from=${Math.floor(fromMs / 1000)}&to=${Math.ceil(toMs / 1000)}`, 8000);
-    return j ? j.rows || [] : null;
+    return j ? (j.rows || []).map(r => ({...r, rate: r.rate_avg ?? r.rate})) : null;
   }
   const num = v => (v === null || v === undefined || Number.isNaN(Number(v)) ? null : Number(v));
   // Values for the form: thickness in nm, rate in Å/s, power in %.
   async function snapshot(port) {
     const p = (await live())?.[port];
     if (!p || !p.ok) return null;
-    return {thk: num(p.thk_nm), rate: num(p.rate), power: num(p.power)};
+    return {thk: num(p.thk_nm), rate: num(p.rate_avg ?? p.rate), power: num(p.power)};
   }
 
   const fmtNum = (v, d) => (v === null || v === undefined ? "" : String(Math.round(v * 10 ** d) / 10 ** d));

@@ -4,7 +4,7 @@
   const CONFIG = {
     appKey: "5rz8t9p1imu4wa9",
     defaultRoot: "/NEXT LAB/Log/A222/VTE log/VTE_MANAGER",
-    version: "2026-10-12-bdb3a934"
+    version: "2026-10-15-e6e947cb"
   };
   const LS = {author: "vte.author", root: "vte.root"};
   const {fmt, displayDate, calcRequiredMonitor, calcMonitorRate} = VTECore;
@@ -312,6 +312,7 @@
     $("#authorEdit").value = localStorage.getItem(LS.author) || "";
     $("#rootInput").value = rootPath();
     $("#testModeToggle").checked = localStorage.getItem("vte.testMode") === "1";
+    $("#thickUrl").value = localStorage.getItem(VTEThick.KEY) || "";
     const last = await app.store.get("lastSync");
     $("#cacheInfo").textContent = last
       ? `파일 ${last.files}개 · 마지막 동기화 ${new Date(last.at).toLocaleString("ko-KR")}${last.failed?.length ? ` · 실패 ${last.failed.length}개` : ""}`
@@ -321,6 +322,17 @@
 
   // ---------- start ----------
   function bind() {
+    $("#thickForm").onsubmit = async e => {
+      e.preventDefault();
+      const v = $("#thickUrl").value.trim().replace(/\/+$/, "");
+      if (v) localStorage.setItem(VTEThick.KEY, v); else localStorage.removeItem(VTEThick.KEY);
+      const info = $("#thickInfo");
+      if (!v) { info.textContent = "서버 주소를 지웠어요. 수동 입력만 쓰여요."; editor?.render(); return; }
+      info.textContent = "연결 확인 중…";
+      const ports = await VTEThick.live();
+      info.textContent = ports ? `연결됨 · 센서 ${Object.keys(ports).join(", ")}` : "연결 안 됨 (주소 확인). 수동 입력은 그대로 돼요.";
+      editor?.render();
+    };
     $("#loginBtn").onclick = async () => { location.href = await app.client.beginLogin(); };
     $("#authorForm").onsubmit = e => {
       e.preventDefault();
