@@ -681,7 +681,7 @@
         ? {...editing.meta, App: `VTE Log PWA ${config.version}`, "Modified By": author(), "Modified At": nowText(), Device: deviceName(), Preset: d.preset || editing.meta.Preset || ""}
         : {App: `VTE Log PWA ${config.version}`, Author: author(), Device: deviceName(), "Created At": d.createdAt, Preset: d.preset};
       meta[Core.PROCESS_ID_KEY] = Core.keepProcessId(editing && editing.meta, d.date, tag);
-      Object.assign(meta, Core.maskHoldersToMeta(d.maskHolders), Core.samplesToMeta(layers, d.maskHolders));
+      Object.assign(meta, Core.maskHoldersToMeta(d.maskHolders), Core.samplesToMeta(layers, d.maskHolders), Core.thickToMeta(layers));
       const sheet = Core.buildProcessLogSheet({isTooling, layers: Core.draftLayersToEditorRows(layers), memo: d.memo, meta, timeTag: tag});
       const thickSheet = await buildThickSheet(layers);
       const newPath = `${savePrefix()}${Core.processLogFolder(isTooling, d.date).join("/")}/${Core.pathSafe(sheet.fileName)}`;
@@ -782,7 +782,7 @@
       if (!(await replaceDraftOk())) return;
       const rows = app.model.rowsOf(log.realPath) || [];
       const meta = Core.readSheetMeta(rows);
-      const layers = Core.draftLayersFromRows(rows);
+      const layers = Core.thickFromMeta(meta, Core.draftLayersFromRows(rows));
       if (!layers.length && !confirm("이 파일은 매니저 양식이 아니라 레이어를 불러오지 못했어요. 빈 로그로 수정할까요?")) return;
       await startDraft({
         type: log.type, date: log.dateStr || Core.currentYYMMDD(), layers, preset: meta.Preset || "", createdAt: meta["Created At"] || "",
