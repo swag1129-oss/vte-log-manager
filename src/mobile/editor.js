@@ -7,6 +7,7 @@
   function create(ctx) {
     const {app, $, $$, esc, status, show, loadModel, openLog, config} = ctx;
     const {fmt, calcRequiredMonitor, ALL_PORTS} = Core;
+    const Thick = root.VTEThick;
     let draft = null;
     let saveTimer = null;
     let tickTimer = null;
@@ -228,6 +229,7 @@
       $("#startPanel").hidden = $("#structurePanel").hidden;
       if (draft) renderEditor(); else renderPresets();
       syncRunningState();
+      if (draft) Thick.watch(thickLayer, () => Boolean(draft) && app.tab === "record"); else Thick.stop();
     }
     function renderPresets() {
       const q = $("#presetSearch").value.trim().toLowerCase();
@@ -462,7 +464,7 @@
       const from = {start_pressure: "end_pressure"}[k];
       return from && prev[from] ? `placeholder="이전 ${esc(prev[from])}"` : "";
     }
-    const MEASURES = {pressure: ["압력", "text", "×10⁻⁷"], rate: ["레이트", "decimal", "Å/s"], power: ["파워", "decimal", ""], temp: ["온도", "decimal", "°C"]};
+    const MEASURES = {thk: ["모니터", "decimal", "nm"], pressure: ["압력", "text", "×10⁻⁷"], rate: ["레이트", "decimal", "Å/s"], power: ["파워", "decimal", ""], temp: ["온도", "decimal", "°C"]};
     function measureRow(l, i, k) {
       const [label, mode, unit] = MEASURES[k];
       return `
@@ -474,6 +476,10 @@
               <input data-i="${i}" data-k="end_${k}" inputmode="${mode}" value="${esc(l[`end_${k}`] || "")}" placeholder="끝" aria-label="${label} 끝">
             </div>`;
     }
+    // Thickness-monitor sensor choice (A-D) per layer; shown only when a monitor server is configured.
+    const thickSelect = (l, i) => !Thick.enabled() ? "" : `<div class="thick-row"><label>두께 센서<select data-i="${i}" data-k="sensor_port">${["", ...Thick.SENSORS].map(p => `<option ${p === (l.sensor_port || "") ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>${l.sensor_port ? '<span class="thick-status" data-thickstatus></span>' : ""}</div>`;
+    const thickExtra = (l, i) => !Thick.enabled() || !l.sensor_port ? "" : `${measureRow(l, i, "thk")}<canvas class="thick-chart" data-thickchart data-i="${i}"></canvas>`;
+    const thickLayer = i => draft?.layers[i];
     const cardHtml = (idx, n) => (draft.layers[idx[0]].codep ? codepCard(idx, n, draft.type === "툴링") : layerCard(draft.layers[idx[0]], idx[0], draft.type === "툴링", n));
     function layerCard(l, i, isTooling, n) {
       const placeholder = k => placeholderFor(l, i, k);
@@ -514,12 +520,14 @@
             <div class="grid2">${input("target_rate", "목표 실제 레이트(Å/s)")}<span class="calc-hint rate-hint" data-rate="${i}">${esc(rateLine(l))}</span></div>
           </div>
           <div class="phase">
+            ${thickSelect(l, i)}
             <div class="measure-head">
               <span></span>
               <button data-act="start" data-i="${i}">${l.started_at ? "▶ 시작 ↺" : "▶ 시작"}<small>${esc((l.started_at || "").slice(11))}</small></button>
               <button data-act="end" data-i="${i}">${l.ended_at ? "■ 끝 ↺" : "■ 끝"}<small>${esc((l.ended_at || "").slice(11))}</small></button>
             </div>
             ${["pressure", "rate", "power", "temp"].map(k => measureRow(l, i, k)).join("")}
+            ${thickExtra(l, i)}
             ${isTooling ? `<div class="grid2 tight" style="margin-top:6px">${input("measured_actual", "실측 두께(nm)")}<span></span></div>` : ""}
           </div>
           <label style="margin-top:6px">메모${`<input data-i="${i}" data-k="notes" value="${esc(l.notes || "")}">`}</label>
@@ -587,7 +595,9 @@
             ${measureRow(l, i, "pressure")}
             ${members.map(([j, m]) => `
             <div class="codep-sub"><span class="mat">${esc(m.material || "재료?")}</span> <span class="port">${esc(m.port || "")}</span></div>
+            ${thickSelect(m, j)}
             ${["rate", "power", "temp"].map(k => measureRow(m, j, k)).join("")}
+            ${thickExtra(m, j)}
             ${isTooling ? `<div class="grid2 tight" style="margin-top:6px"><label>실측 두께(nm)<input data-i="${j}" data-k="measured_actual" inputmode="decimal" value="${esc(m.measured_actual || "")}"></label><span></span></div>` : ""}`).join("")}
             <div class="calc-hint" data-dope="${i}">${esc(dopingText(idx))}</div>
           </div>
@@ -635,6 +645,22 @@
      *              again overwrites it instead of leaving a trail of copies.
      *   "saveAs" — write a new file under a fresh name and keep recording in that one.
      */
+    // Extra "ThickMon" sheet: per-layer start/end readings, then the recorded series. Absent when no sensor was chosen or the server is unreachable.
+    async function buildThickSheet(layers) {
+      const used = layers.map((l, i) => ({l, i})).filter(({l}) => l.sensor_port && l.started_ms);
+      if (!used.length || !Thick.enabled()) return null;
+      const aoa = [["Layer", "Material", "Source", "Sensor", "Start", "End", "Start thk (nm)", "End thk (nm)"]];
+      const series = [["Layer", "Sensor", "Time", "Epoch (s)", "Thickness (nm)", "Rate (A/s)", "Power (%)"]];
+      let got = 0;
+      for (const {l, i} of used) {
+        aoa.push([i + 1, l.material || "", l.port || "", l.sensor_port, l.started_at || "", l.ended_at || "", l.start_thk || "", l.end_thk || ""]);
+        const rows = await Thick.series(l.sensor_port, l.started_ms, l.ended_ms || Date.now());
+        got += (rows || []).length;
+        for (const r of rows || []) series.push([i + 1, l.sensor_port, new Date(r.ts * 1000).toTimeString().slice(0, 8), Math.round(r.ts), r.thk_nm, r.rate, r.power]);
+      }
+      if (!got && !aoa.slice(1).some(r => r[6] || r[7])) return null;
+      return {sheetTitle: "ThickMon", aoa: [...aoa, [], ...series], cols: [7, 14, 8, 8, 17, 17, 12, 12]};
+    }
     async function uploadDraft(mode = "close") {
       const d = draft;
       const err = msg => { $("#editorError").textContent = msg; };
@@ -657,13 +683,14 @@
       meta[Core.PROCESS_ID_KEY] = Core.keepProcessId(editing && editing.meta, d.date, tag);
       Object.assign(meta, Core.maskHoldersToMeta(d.maskHolders), Core.samplesToMeta(layers, d.maskHolders));
       const sheet = Core.buildProcessLogSheet({isTooling, layers: Core.draftLayersToEditorRows(layers), memo: d.memo, meta, timeTag: tag});
+      const thickSheet = await buildThickSheet(layers);
       const newPath = `${savePrefix()}${Core.processLogFolder(isTooling, d.date).join("/")}/${Core.pathSafe(sheet.fileName)}`;
       // Edit in place only in the matching mode (test file in test mode, real file otherwise) and while the file still exists;
       // a file deleted since opening is saved as a new file instead of being silently recreated.
       const inPlace = mode !== "saveAs" && editing && editing.test === testMode()
         && editing.origType === d.type && editing.origDate === d.date && Boolean(fileRev(editing.realPath));
       const job = {kind: "log", label: sheet.fileName, relPath: inPlace ? editing.realPath : newPath, rev: inPlace ? fileRev(editing.realPath) : null,
-        fallbackPath: newPath, what: "로그", bytes: toWorkbook([sheet]), draft: d};
+        fallbackPath: newPath, what: "로그", bytes: toWorkbook(thickSheet ? [sheet, thickSheet] : [sheet]), draft: d};
       const queueDraft = async () => {
         await enqueue(job);
         draft = null;
@@ -901,6 +928,7 @@
           autofill(layer, {force: true});
         }
         else if (k === "vol" || k === "codep_total" || k === "codep_rate" || k === "monitor") { persist(); patchCard(i); renderStructure(); return; }
+        else if (k === "sensor_port") { layer.sensor_port = el.value; persist(); refreshCard(i); Thick.refresh(thickLayer); return; }
         else if (k === "port" || k === "tooling_factor") { layer[k] = el.value; autofill(layer, {force: true}); }
         else if (k === "mask") setShared(i, "mask", el.value);
         else return;
@@ -952,6 +980,18 @@
           if (layers[i][key] && !confirm(`${act === "start" ? "시작" : "끝"} 시각을 지금으로 바꿀까요?`)) return;
           setShared(i, key, nowText());
           setShared(i, act === "start" ? "started_ms" : "ended_ms", Date.now());
+          if (Thick.enabled()) {
+            const when = act === "start" ? "start" : "end";
+            const targets = blockOf(i).filter(j => layers[j].sensor_port);
+            const snaps = await Promise.all(targets.map(j => Thick.snapshot(layers[j].sensor_port)));
+            targets.forEach((j, n) => {
+              const s = snaps[n];
+              if (!s) return;
+              if (s.rate !== null) layers[j][`${when}_rate`] = Thick.fmtNum(s.rate, 3);
+              if (s.power !== null) layers[j][`${when}_power`] = Thick.fmtNum(s.power, 1);
+              if (s.thk !== null) layers[j][`${when}_thk`] = Thick.fmtNum(s.thk, 2);
+            });
+          }
           if (act === "end") setShared(i, "collapsed", true);
         } else if (act === "up" || act === "down" || act === "remove") {
           const all = blocks(), n = all.findIndex(b => b.includes(i));
