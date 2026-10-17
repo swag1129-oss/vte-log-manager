@@ -56,7 +56,7 @@
     return j ? (j.rows || []) : null;
   }
   const num = v => (v === null || v === undefined || Number.isNaN(Number(v)) ? null : Number(v));
-  // Values for the form: thickness (5 s median) in nm, rate_fit (10 s slope of it) in Å/s, power in %. Raw RS232 `rate` is never used for autofill.
+  // Values for the form: thickness (5 s median) in nm, rate_fit (adaptive 10-60 s slope of it) in Å/s, power in %. Raw RS232 `rate` is never used for autofill.
   async function snapshot(port) {
     const p = (await live())?.[port];
     if (!p || !p.ok) return null;
@@ -205,13 +205,14 @@
         pts.forEach((q, n) => { if (n) g.lineTo(x(q[0]), y(q[1])); else g.moveTo(x(q[0]), y(q[1])); });
         g.stroke();
         if (p.slope) {
-          // tangent over the last 10 s: slope = rate_fit (A/s) = rate/10 nm/s
+          // tangent over the server's adaptive window (10-60 s): slope = rate_fit (A/s) = rate/10 nm/s
+          const win = num(last && last.rate_win) || 10;
           const last = rows[rows.length - 1], rf = last && num(last.rate_fit), lv = last && num(last.thk_med);
           if (rf !== null && lv !== null && last.ts * 1000 <= t1) {
             g.strokeStyle = "#e53e3e";
             g.lineWidth = 2.2;
             g.beginPath();
-            g.moveTo(x(last.ts * 1000 - 10000), y(lv - rf / 10 * 10));
+            g.moveTo(x(last.ts * 1000 - win * 1000), y(lv - rf / 10 * win));
             g.lineTo(x(last.ts * 1000), y(lv));
             g.stroke();
           }
@@ -221,13 +222,15 @@
       // legend (top-left inside the panel)
       if (p.dots || p.slope) {
         g.font = "10.5px sans-serif";
-        const items = p.dots ? (dots.length ? [["dot", "RS232 원값"], ["line", "10초 기울기"]] : [["line", "10초 기울기"]]) : [["line", "두께 (5초 중앙값)"]];
+        const items = p.dots ? (dots.length ? [["dot", "RS232 원값"], ["line", "기울기(10–60초)"]] : [["line", "기울기(10–60초)"]]) : [["line", "두께 (5초 중앙값)"]];
+        const lum = (fg.match(/[\d.]+/g) || [0, 0, 0]).slice(0, 3).reduce((a, v, n) => a + v * [.2126, .7152, .0722][n], 0);
+        const legendBg = lum > 128 ? "rgba(24,24,24,.82)" : "rgba(255,255,255,.85)";  // chart text light => dark theme
         let lx = left + 6;
         g.textAlign = "left";
         g.textBaseline = "middle";
         for (const [kind, text] of items) {
           const tw = g.measureText(text).width;
-          g.fillStyle = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "rgba(30,30,30,.78)" : "rgba(255,255,255,.78)";
+          g.fillStyle = legendBg;
           g.fillRect(lx - 2, y0 + 3, tw + 22, 14);
           if (kind === "dot") { g.fillStyle = "rgba(110,110,110,.9)"; g.beginPath(); g.arc(lx + 4, y0 + 10, 2.2, 0, 7); g.fill(); }
           else { g.strokeStyle = kind === "tan" ? "#e53e3e" : p.color; g.lineWidth = kind === "tan" ? 2.2 : 1.6; g.beginPath(); g.moveTo(lx, y0 + 10); g.lineTo(lx + 9, y0 + 10); g.stroke(); }
