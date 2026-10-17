@@ -41,37 +41,106 @@
 
   // ---------- chart ----------
   const PANELS = [
-    {key: "thk_med", label: "두께 nm (5초 중앙값 · 선=10초 기울기)", color: "#2b6cb0", slope: true},
-    {key: "rate_fit", label: "레이트 Å/s (10초 기울기)", color: "#c05621", dots: "rate"},
-    {key: "power", label: "파워 %", color: "#2f855a"}
+    {key: "thk_med", label: "두께", unit: "nm", color: "#2b6cb0", slope: true, zero: 0.3},
+    {key: "rate_fit", label: "레이트", unit: "Å/s", color: "#c05621", dots: "rate", zero: 1},
+    {key: "power", label: "파워", unit: "%", color: "#2f855a", zero: 1}
   ];
-  // opts.panels: keys to draw (default: those with data). The y axis follows the fitted line only; gray raw RS232 dots are clipped to it.
+  const hm = ms => new Date(ms).toTimeString().slice(0, 5);
+  function niceStep(span, n) {
+    const raw = span / n, p = 10 ** Math.floor(Math.log10(raw)), m = raw / p;
+    return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * p;
+  }
+  const MIN_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 180, 360];
+  // opts.panels: keys to draw (default: those with data). opts.title: header text (time range is appended). The y axis follows the fitted line only; gray raw RS232 dots are clipped to it.
   function drawChart(canvas, rows, t0, t1, startMs, endMs, port, opts = {}) {
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth || 300;
     const wanted = opts.panels ? PANELS.filter(p => opts.panels.includes(p.key)) : PANELS.filter(p => rows.some(r => num(r[p.key]) !== null) && !(p.key === "power" && port === "D"));
     const show = wanted.length ? wanted : PANELS.slice(0, 2);
-    const ph = opts.height || 64, top = 4, h = top + show.length * (ph + 6) + 14;
+    const ph = opts.height || 92, titleH = 18, gap = 26, top = titleH;
+    const h = top + show.length * (ph + gap) - gap + 22;
     canvas.width = w * dpr;
     canvas.height = h * dpr;
     canvas.style.height = h + "px";
     const g = canvas.getContext("2d");
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, w, h);
-    const fg = getComputedStyle(canvas).color || "#444";
-    const left = 38, right = w - 6, x = ms => left + (ms - t0) / Math.max(1, t1 - t0) * (right - left);
+    const cs = getComputedStyle(canvas), fg = cs.color || "#444";
+    const grid = "rgba(128,128,128,.28)", axis = "rgba(128,128,128,.9)";
+    const left = 46, right = w - 8, x = ms => left + (ms - t0) / Math.max(1, t1 - t0) * (right - left);
     const marks = rows.filter(r => r.flag).map(r => ({ms: r.ts * 1000, flag: r.flag}));
-    g.font = "10px sans-serif";
+    const spanMin = (t1 - t0) / 60000;
+    const stepMin = MIN_STEPS.find(s => spanMin / s <= Math.max(2, Math.floor((right - left) / 50))) || 360;
+    const xticks = [];
+    for (let m = Math.ceil(t0 / 60000 / stepMin) * stepMin; m * 60000 <= t1; m += stepMin) xticks.push(m * 60000);
+    g.font = "11px sans-serif";
+    g.textBaseline = "alphabetic";
+    g.fillStyle = fg;
+    g.textAlign = "center";
+    g.font = "bold 12px sans-serif";
+    const range = `${hm(startMs || t0)}–${hm(endMs || t1)}`;
+    g.fillText([opts.title, range].filter(Boolean).join("  "), (left + right) / 2, 12);
+    g.font = "11px sans-serif";
     show.forEach((p, k) => {
-      const y0 = top + k * (ph + 6);
-      const pts = rows.map(r => [r.ts * 1000, num(r[p.key])]).filter(q => q[1] !== null);
-      g.fillStyle = "rgba(128,128,128,.08)";
-      g.fillRect(left, y0, right - left, ph);
+      const y0 = top + k * (ph + gap);
+      const pts = rows.map(r => [r.ts * 1000, num(r[p.key])]).filter(q => q[1] !== null && q[0] >= t0);
+      const dots = p.dots && port !== "D" ? rows.map(r => [r.ts * 1000, num(r[p.dots])]).filter(q => q[1] !== null && q[0] >= t0) : [];
+      let lo = pts.length ? Math.min(...pts.map(q => q[1])) : 0, hi = pts.length ? Math.max(...pts.map(q => q[1])) : 1;
+      if (hi - lo < 1e-9) { lo -= 0.5; hi += 0.5; }
+      if (lo > 0 && lo < hi * p.zero) lo = 0;
+      const pad = (hi - lo) * 0.06;
+      hi += pad;
+      lo = lo === 0 ? -pad : lo - pad;
+      const y = v => y0 + ph - (v - lo) / (hi - lo) * ph;
+      g.save();
+      g.beginPath();
+      g.rect(left, y0, right - left, ph);
+      g.clip();
       if (startMs) {
-        g.fillStyle = "rgba(237,137,54,.18)";
+        g.fillStyle = "rgba(237,137,54,.14)";
         const a = Math.max(left, x(startMs)), b = Math.min(right, x(endMs || t1));
         if (b > a) g.fillRect(a, y0, b - a, ph);
+      }
+      g.restore();
+      // grid
+      const ystep = niceStep(hi - lo, Math.max(2, Math.floor(ph / 26)));
+      const dec = ystep >= 1 ? 0 : Math.min(3, Math.ceil(-Math.log10(ystep)));
+      g.strokeStyle = grid;
+      g.lineWidth = 1;
+      g.beginPath();
+      for (let v = Math.ceil(lo / ystep) * ystep; v <= hi; v += ystep) { g.moveTo(left, Math.round(y(v)) + .5); g.lineTo(right, Math.round(y(v)) + .5); }
+      for (const m of xticks) { g.moveTo(Math.round(x(m)) + .5, y0); g.lineTo(Math.round(x(m)) + .5, y0 + ph); }
+      g.stroke();
+      g.strokeStyle = axis;
+      g.strokeRect(left + .5, y0 + .5, right - left - 1, ph - 1);
+      g.fillStyle = fg;
+      g.textAlign = "right";
+      g.textBaseline = "middle";
+      for (let v = Math.ceil(lo / ystep) * ystep; v <= hi; v += ystep) g.fillText((Math.abs(v) < ystep / 1e6 ? 0 : v).toFixed(dec), left - 4, y(v));
+      g.textAlign = "center";
+      g.textBaseline = "alphabetic";
+      for (const m of xticks) g.fillText(hm(m), x(m), y0 + ph + 13);
+      g.save();
+      g.translate(9, y0 + ph / 2);
+      g.rotate(-Math.PI / 2);
+      g.fillText(`${p.label} (${p.unit})`, 0, 3);
+      g.restore();
+      // y = 0 baseline
+      if (lo < 0 && hi > 0) {
+        g.strokeStyle = "rgba(60,60,60,.85)";
+        g.lineWidth = 1.2;
+        g.beginPath();
+        g.moveTo(left, y(0));
+        g.lineTo(right, y(0));
+        g.stroke();
+      }
+      g.save();
+      g.beginPath();
+      g.rect(left, y0, right - left, ph);
+      g.clip();
+      if (startMs) {
         g.strokeStyle = "rgba(237,137,54,.9)";
+        g.lineWidth = 1;
         g.beginPath();
         for (const m of [startMs, endMs]) if (m && m >= t0 && m <= t1) { g.moveTo(x(m), y0); g.lineTo(x(m), y0 + ph); }
         g.stroke();
@@ -90,53 +159,54 @@
         g.strokeStyle = m.flag === "reset" ? "rgba(197,48,48,.8)" : "rgba(214,158,46,.8)";
         g.beginPath();
         g.moveTo(x(m.ms), y0);
-        g.lineTo(x(m.ms), y0 + 5);
+        g.lineTo(x(m.ms), y0 + 6);
         g.stroke();
       }
-      g.fillStyle = fg;
-      g.textAlign = "left";
-      g.fillText(p.label, left + 3, y0 + 10);
-      if (!pts.length) return;
-      const dots = p.dots && port !== "D" ? rows.map(r => [r.ts * 1000, num(r[p.dots])]).filter(q => q[1] !== null) : [];
-      let lo = Math.min(...pts.map(q => q[1])), hi = Math.max(...pts.map(q => q[1]));
-      if (hi - lo < 1e-9) { lo -= 0.5; hi += 0.5; }
-      const pad = (hi - lo) * 0.05;
-      lo -= pad;
-      hi += pad;
-      const y = v => y0 + ph - 3 - (v - lo) / (hi - lo) * (ph - 8);
-      g.textAlign = "right";
-      g.fillText(fmtNum(hi, 2), left - 3, y0 + 9);
-      g.fillText(fmtNum(lo, 2), left - 3, y0 + ph);
-      g.fillStyle = "rgba(128,128,128,.55)";
-      for (const q of dots) if (q[1] >= lo && q[1] <= hi) g.fillRect(x(q[0]) - 0.75, y(q[1]) - 0.75, 1.5, 1.5);
-      g.strokeStyle = p.color;
-      g.lineWidth = 1.5;
-      g.beginPath();
-      let pen = false;
-      for (const q of pts) {
-        if (q[0] < t0) continue;
-        if (pen) g.lineTo(x(q[0]), y(q[1])); else { g.moveTo(x(q[0]), y(q[1])); pen = true; }
-      }
-      g.stroke();
-      if (p.slope) {
-        // tangent over the last 10 s: slope = rate_fit (A/s) = rate/10 nm/s
-        const last = rows[rows.length - 1], rf = last && num(last.rate_fit), lv = last && num(last.thk_med);
-        if (rf !== null && lv !== null && last.ts * 1000 <= t1) {
-          g.strokeStyle = "#e53e3e";
-          g.lineWidth = 2;
-          g.beginPath();
-          g.moveTo(x(last.ts * 1000 - 10000), Math.min(y0 + ph, Math.max(y0, y(lv - rf / 10 * 10))));
-          g.lineTo(x(last.ts * 1000), y(lv));
-          g.stroke();
+      if (pts.length) {
+        g.fillStyle = "rgba(128,128,128,.6)";
+        for (const q of dots) if (q[1] >= lo && q[1] <= hi) g.fillRect(x(q[0]) - 1, y(q[1]) - 1, 2, 2);
+        g.strokeStyle = p.color;
+        g.lineWidth = 1.6;
+        g.lineJoin = "round";
+        g.beginPath();
+        pts.forEach((q, n) => { if (n) g.lineTo(x(q[0]), y(q[1])); else g.moveTo(x(q[0]), y(q[1])); });
+        g.stroke();
+        if (p.slope) {
+          // tangent over the last 10 s: slope = rate_fit (A/s) = rate/10 nm/s
+          const last = rows[rows.length - 1], rf = last && num(last.rate_fit), lv = last && num(last.thk_med);
+          if (rf !== null && lv !== null && last.ts * 1000 <= t1) {
+            g.strokeStyle = "#e53e3e";
+            g.lineWidth = 2.2;
+            g.beginPath();
+            g.moveTo(x(last.ts * 1000 - 10000), y(lv - rf / 10 * 10));
+            g.lineTo(x(last.ts * 1000), y(lv));
+            g.stroke();
+          }
         }
       }
+      g.restore();
+      // legend (top-left inside the panel)
+      if (p.dots || p.slope) {
+        g.font = "10.5px sans-serif";
+        const items = p.dots ? (dots.length ? [["dot", "RS232 원값"], ["line", "10초 기울기"]] : [["line", "10초 기울기"]]) : [["line", "두께 (5초 중앙값)"], ["tan", "10초 기울기"]];
+        let lx = left + 6;
+        g.textAlign = "left";
+        g.textBaseline = "middle";
+        for (const [kind, text] of items) {
+          const tw = g.measureText(text).width;
+          g.fillStyle = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "rgba(30,30,30,.78)" : "rgba(255,255,255,.78)";
+          g.fillRect(lx - 2, y0 + 3, tw + 22, 14);
+          if (kind === "dot") { g.fillStyle = "rgba(110,110,110,.9)"; g.beginPath(); g.arc(lx + 4, y0 + 10, 2.2, 0, 7); g.fill(); }
+          else { g.strokeStyle = kind === "tan" ? "#e53e3e" : p.color; g.lineWidth = kind === "tan" ? 2.2 : 1.6; g.beginPath(); g.moveTo(lx, y0 + 10); g.lineTo(lx + 9, y0 + 10); g.stroke(); }
+          g.fillStyle = fg;
+          g.fillText(text, lx + 12, y0 + 10);
+          lx += tw + 28;
+        }
+        g.font = "11px sans-serif";
+      }
+      g.textBaseline = "alphabetic";
       g.lineWidth = 1;
     });
-    g.fillStyle = fg;
-    g.textAlign = "left";
-    g.fillText(hms(t0), left, h - 3);
-    g.textAlign = "right";
-    g.fillText(hms(t1), right, h - 3);
   }
 
   // First row at or after `ms` (fallback: last row before it), so start/end values come from the server's clock at the click, not from whenever the app got an answer.
@@ -189,6 +259,10 @@
     return {patch, out, merged: {...merged, ...patch}};
   }
 
+  function chartTitle(port, rows, material) {
+    const no = [...rows].reverse().map(r => r.material_no).find(v => v !== null && v !== undefined);
+    return `${port}${no !== undefined ? " #" + no : ""}${material ? "/" + material : ""}`;
+  }
   // Redraws every chart canvas ([data-thickchart]) on the page and updates the big numbers next to it.
   const cache = new Map();
   let timer = null;
@@ -216,7 +290,7 @@
       const {patch, out, merged} = analyze(l, i, hit.rows, now, ctx);
       if (Object.keys(patch).length) ctx.set(i, patch);
       if (label) label.textContent = hit.rows.length ? `${hit.rows.length}점 · ${running ? "실시간" : l.ended_ms ? "구간 기록" : "최근 3분"}` : "데이터 없음";
-      drawChart(canvas, hit.rows, t0, Math.max(t1, t0 + 1000), l.started_ms, l.ended_ms, l.sensor_port, {detMs: merged.det_ms});
+      drawChart(canvas, hit.rows, t0, Math.max(t1, t0 + 1000), l.started_ms, l.ended_ms, l.sensor_port, {detMs: merged.det_ms, title: chartTitle(l.sensor_port, hit.rows, l.material)});
       updateLive(box, merged, hit.rows, running, out, now);
     }
   }
@@ -272,5 +346,5 @@
     return rows.filter((r, i) => i % step === 0 || r.flag);
   }
 
-  root.VTEThick = {analyze, rowAt, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, series, watch, stop, refresh, drawChart, fmtNum};
+  root.VTEThick = {analyze, rowAt, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, series, watch, stop, refresh, drawChart, chartTitle, fmtNum};
 })(typeof globalThis !== "undefined" ? globalThis : this);

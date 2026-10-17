@@ -193,7 +193,7 @@
       const t = thick.get(Number(canvas.dataset.logchart));
       const pts = t.points.slice().sort((a, b) => a.ts - b.ts);
       const sum = t.sum || [];
-      VTEThick.drawChart(canvas, pts, pts[0].ts * 1000, Math.max(pts[pts.length - 1].ts * 1000, pts[0].ts * 1000 + 1000), Number(sum[16]) || 0, Number(sum[17]) || 0, pts[0].sensor, {panels: ["thk_med", "rate_fit"], height: 80});
+      VTEThick.drawChart(canvas, pts, pts[0].ts * 1000, Math.max(pts[pts.length - 1].ts * 1000, pts[0].ts * 1000 + 1000), Number(sum[16]) || 0, Number(sum[17]) || 0, pts[0].sensor, {panels: ["thk_med", "rate_fit"], height: 92, title: VTEThick.chartTitle(pts[0].sensor, [], layers[Number(canvas.dataset.logchart) - 1]?.material)});
     }
   }
 

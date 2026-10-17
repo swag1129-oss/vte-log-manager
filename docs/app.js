@@ -4,7 +4,7 @@
   const CONFIG = {
     appKey: "5rz8t9p1imu4wa9",
     defaultRoot: "/NEXT LAB/Log/A222/VTE log/VTE_MANAGER",
-    version: "2026-10-17-5cdc8bb1"
+    version: "2026-10-17-c62d77a0"
   };
   const LS = {author: "vte.author", root: "vte.root"};
   const {fmt, displayDate, calcRequiredMonitor, calcMonitorRate} = VTECore;
@@ -193,7 +193,7 @@
       const t = thick.get(Number(canvas.dataset.logchart));
       const pts = t.points.slice().sort((a, b) => a.ts - b.ts);
       const sum = t.sum || [];
-      VTEThick.drawChart(canvas, pts, pts[0].ts * 1000, Math.max(pts[pts.length - 1].ts * 1000, pts[0].ts * 1000 + 1000), Number(sum[16]) || 0, Number(sum[17]) || 0, pts[0].sensor, {panels: ["thk_med", "rate_fit"], height: 80});
+      VTEThick.drawChart(canvas, pts, pts[0].ts * 1000, Math.max(pts[pts.length - 1].ts * 1000, pts[0].ts * 1000 + 1000), Number(sum[16]) || 0, Number(sum[17]) || 0, pts[0].sensor, {panels: ["thk_med", "rate_fit"], height: 92, title: VTEThick.chartTitle(pts[0].sensor, [], layers[Number(canvas.dataset.logchart) - 1]?.material)});
     }
   }
 
