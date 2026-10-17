@@ -301,7 +301,7 @@
   }
   // Redraws every chart canvas ([data-thickchart]) on the page and updates the big numbers next to it.
   const cache = new Map();
-  let timer = null;
+  let timer = null, wakeBound = false, curCtx = null, curActive = null;
   async function refresh(ctx, root = document) {
     if (!enabled()) return;
     const warns = [...root.querySelectorAll("[data-thickwarn]")];
@@ -317,7 +317,7 @@
       const i = Number(canvas.dataset.i);
       const l = ctx.layers()[i];
       const box = canvas.closest("[data-thickbox]");
-      const label = box && box.querySelector("[data-thickstatus]");
+      const label = (box && box.querySelector("[data-thickstatus]")) || (box && box.parentElement && box.parentElement.querySelector("[data-thickstatus]")) || canvas.closest("section,article,.card,.layer")?.querySelector("[data-thickstatus]") || null;
       if (!l || !l.sensor_port) continue;
       const now = Date.now();
       const running = l.started_ms && !l.ended_ms;
@@ -326,16 +326,30 @@
       const settled = l.ended_ms && now > l.ended_ms + 190000;
       const id = `${l.sensor_port}|${t0}|${l.ended_ms || ""}`;
       let hit = cache.get(id);
-      if (!hit || !settled) {
-        const rows = await range(l.sensor_port, t0, t1 + 2000);
-        if (rows) hit = {rows};
-        else if (!hit) { if (label) label.textContent = "서버 연결 안 됨"; continue; }
-        cache.set(id, hit);
+      if (!hit) { hit = {rows: [], lastTs: 0, okAt: 0, nextAt: 0, fails: 0, busy: false, full: false, done: false}; cache.set(id, hit); }
+      if (!hit.done && !hit.busy && now >= hit.nextAt) {
+        hit.busy = true;
+        try {
+          const rows = hit.full ? await range(l.sensor_port, hit.lastTs * 1000, t1 + 2000) : await range(l.sensor_port, t0, t1 + 2000);
+          if (rows) {
+            if (!hit.full) hit.rows = rows;
+            else { for (const r of rows) if (r.ts > hit.lastTs) hit.rows.push(r); }
+            if (hit.rows.length) hit.lastTs = hit.rows[hit.rows.length - 1].ts;
+            hit.full = true; hit.fails = 0; hit.okAt = Date.now(); hit.nextAt = hit.okAt + 1800;
+            if (settled) hit.done = true;
+          } else { hit.fails++; hit.nextAt = Date.now() + Math.min(5000, 1000 * hit.fails); }
+        } finally { hit.busy = false; }
       }
+      if (!hit.okAt) { if (label) label.textContent = "서버 연결 안 됨"; continue; }
       const {patch, out, merged} = analyze(l, i, hit.rows, now, ctx);
       if (Object.keys(patch).length) ctx.set(i, patch);
-      if (label) label.textContent = hit.rows.length ? `${hit.rows.length}점 · ${running ? "실시간" : l.ended_ms ? "구간 기록" : "최근 3분"}` : "데이터 없음";
-      drawChart(canvas, hit.rows, t0, Math.max(t1, t0 + 1000), l.started_ms, l.ended_ms, l.sensor_port, {detMs: merged.det_ms, title: chartTitle(l.sensor_port, hit.rows, l.material)});
+      const age = Math.max(0, Math.round((Date.now() - hit.okAt) / 1000));
+      if (label) {
+        label.textContent = (hit.rows.length ? `${hit.rows.length}점 · ${running ? "실시간" : l.ended_ms ? "구간 기록" : "최근 3분"}` : "데이터 없음") + (hit.done ? "" : ` · 갱신 ${age}초 전`);
+        label.style.color = !hit.done && age > 10 ? "#e8890c" : "";
+      }
+      const drawRows = hit.rows.length > 3000 ? hit.rows.filter((r, k) => k % Math.ceil(hit.rows.length / 3000) === 0 || r.flag || k === hit.rows.length - 1) : hit.rows;
+      drawChart(canvas, drawRows, t0, Math.max(t1, t0 + 1000), l.started_ms, l.ended_ms, l.sensor_port, {detMs: merged.det_ms, title: chartTitle(l.sensor_port, hit.rows, l.material)});
       updateLive(box, merged, hit.rows, running, out, now);
     }
   }
@@ -378,8 +392,15 @@
     clearInterval(timer);
     timer = null;
     if (!enabled()) return;
+    curCtx = ctx; curActive = active;
     refresh(ctx);
-    timer = setInterval(() => { if (active() && !document.hidden) refresh(ctx); }, 2000);
+    timer = setInterval(() => { if (active() && !document.hidden) refresh(ctx); }, 1000);
+    if (typeof document !== "undefined" && !wakeBound) {
+      wakeBound = true;
+      const wake = () => { if (timer && !document.hidden) { for (const h of cache.values()) h.nextAt = 0; if (curActive()) refresh(curCtx); } };
+      document.addEventListener("visibilitychange", wake);
+      window.addEventListener("pageshow", wake);
+    }
   }
   function stop() { clearInterval(timer); timer = null; }
 
