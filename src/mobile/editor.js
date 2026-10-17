@@ -650,16 +650,16 @@
       const used = layers.map((l, i) => ({l, i})).filter(({l}) => l.sensor_port && l.started_ms);
       if (!used.length || !Thick.enabled()) return null;
       const aoa = [["Layer", "Material", "Source", "Sensor", "Start", "End", "Start thk (nm)", "End thk (nm)"]];
-      const series = [["Layer", "Sensor", "Time", "Epoch (s)", "Thickness (nm)", "Rate (A/s)", "Power (%)"]];
+      const series = [["Layer", "Sensor", "Time", "Epoch (s)", "Thickness median 5s (nm)", "Rate fit 10s (A/s)", "Raw RS232 rate (A/s, untrusted)", "Power (%)"]];
       let got = 0;
       for (const {l, i} of used) {
         aoa.push([i + 1, l.material || "", l.port || "", l.sensor_port, l.started_at || "", l.ended_at || "", l.start_thk || "", l.end_thk || ""]);
         const rows = await Thick.series(l.sensor_port, l.started_ms, l.ended_ms || Date.now());
         got += (rows || []).length;
-        for (const r of rows || []) series.push([i + 1, l.sensor_port, new Date(r.ts * 1000).toTimeString().slice(0, 8), Math.round(r.ts), r.thk_nm, r.rate, r.power]);
+        for (const r of rows || []) series.push([i + 1, l.sensor_port, new Date(r.ts * 1000).toTimeString().slice(0, 8), Math.round(r.ts), r.thk_med, r.rate_fit, l.sensor_port === "D" ? "" : r.rate, l.sensor_port === "D" ? "" : r.power]);
       }
       if (!got && !aoa.slice(1).some(r => r[6] || r[7])) return null;
-      return {sheetTitle: "ThickMon", aoa: [...aoa, [], ...series], cols: [7, 14, 8, 8, 17, 17, 12, 12]};
+      return {sheetTitle: "ThickMon", aoa: [...aoa, [], ...series], cols: [7, 14, 8, 8, 17, 17, 12, 12, 12]};
     }
     async function uploadDraft(mode = "close") {
       const d = draft;

@@ -24,14 +24,15 @@
   const live = async () => (await getJson("/live"))?.ports || null;
   async function range(port, fromMs, toMs) {
     const j = await getJson(`/range?port=${encodeURIComponent(port)}&from=${Math.floor(fromMs / 1000)}&to=${Math.ceil(toMs / 1000)}`, 8000);
-    return j ? (j.rows || []).map(r => ({...r, rate: r.rate_avg ?? r.rate})) : null;
+    return j ? (j.rows || []) : null;
   }
   const num = v => (v === null || v === undefined || Number.isNaN(Number(v)) ? null : Number(v));
-  // Values for the form: thickness in nm, rate in Å/s, power in %.
+  // Values for the form: thickness (5 s median) in nm, rate_fit (10 s slope of it) in Å/s, power in %. Raw RS232 `rate` is never used for autofill.
   async function snapshot(port) {
     const p = (await live())?.[port];
     if (!p || !p.ok) return null;
-    return {thk: num(p.thk_nm), rate: num(p.rate_avg ?? p.rate), power: num(p.power)};
+    // Port D power is a manual knob (always 0 on the wire): never autofill it.
+    return {thk: num(p.thk_med ?? p.thk_nm), rate: num(p.rate_fit), power: port === "D" ? null : num(p.power)};
   }
 
   const fmtNum = (v, d) => (v === null || v === undefined ? "" : String(Math.round(v * 10 ** d) / 10 ** d));
@@ -39,14 +40,14 @@
 
   // ---------- chart ----------
   const PANELS = [
-    {key: "thk_nm", label: "두께 nm", color: "#2b6cb0"},
-    {key: "rate", label: "레이트 Å/s", color: "#c05621"},
+    {key: "thk_med", label: "두께 nm (5초 중앙값)", color: "#2b6cb0"},
+    {key: "rate_fit", label: "레이트 Å/s (10초 기울기)", color: "#c05621", dots: "rate"},
     {key: "power", label: "파워 %", color: "#2f855a"}
   ];
-  function drawChart(canvas, rows, t0, t1, startMs, endMs) {
+  function drawChart(canvas, rows, t0, t1, startMs, endMs, port) {
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth || 300;
-    const panels = PANELS.filter(p => rows.some(r => num(r[p.key]) !== null));
+    const panels = PANELS.filter(p => rows.some(r => num(r[p.key]) !== null) && !(p.key === "power" && port === "D"));
     const show = panels.length ? panels : PANELS.slice(0, 2);
     const ph = 64, top = 4, h = top + show.length * (ph + 6) + 14;
     canvas.width = w * dpr;
@@ -76,12 +77,17 @@
       g.textAlign = "left";
       g.fillText(p.label, left + 3, y0 + 10);
       if (!pts.length) return;
-      let lo = Math.min(...pts.map(q => q[1])), hi = Math.max(...pts.map(q => q[1]));
+      // Raw RS232 rate (851 A-C only) as untrusted gray dots under the fitted line.
+      const dots = p.dots && port !== "D" ? rows.map(r => [r.ts * 1000, num(r[p.dots])]).filter(q => q[1] !== null) : [];
+      const all = pts.concat(dots);
+      let lo = Math.min(...all.map(q => q[1])), hi = Math.max(...all.map(q => q[1]));
       if (hi - lo < 1e-9) { lo -= 0.5; hi += 0.5; }
       const y = v => y0 + ph - 3 - (v - lo) / (hi - lo) * (ph - 8);
       g.textAlign = "right";
       g.fillText(fmtNum(hi, 2), left - 3, y0 + 9);
       g.fillText(fmtNum(lo, 2), left - 3, y0 + ph);
+      g.fillStyle = "rgba(128,128,128,.55)";
+      for (const q of dots) g.fillRect(x(q[0]) - 0.75, y(q[1]) - 0.75, 1.5, 1.5);
       g.strokeStyle = p.color;
       g.lineWidth = 1.5;
       g.beginPath();
@@ -118,7 +124,7 @@
         cache.set(id, hit);
       }
       if (label) label.textContent = hit.rows.length ? `${hit.rows.length}점 · ${running ? "실시간" : l.ended_ms ? "구간 기록" : "최근 10분"}` : "데이터 없음";
-      drawChart(canvas, hit.rows, t0, t1, l.started_ms, l.ended_ms);
+      drawChart(canvas, hit.rows, t0, t1, l.started_ms, l.ended_ms, l.sensor_port);
     }
   }
   function watch(getLayer, active) {
