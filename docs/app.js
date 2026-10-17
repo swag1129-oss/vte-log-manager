@@ -4,7 +4,7 @@
   const CONFIG = {
     appKey: "5rz8t9p1imu4wa9",
     defaultRoot: "/NEXT LAB/Log/A222/VTE log/VTE_MANAGER",
-    version: "2026-10-17-bcb22f19"
+    version: "2026-10-17-aaefbf4c"
   };
   const LS = {author: "vte.author", root: "vte.root"};
   const {fmt, displayDate, calcRequiredMonitor, calcMonitorRate} = VTECore;
@@ -134,6 +134,23 @@
       return null;
     }
   };
+  // A cached ThickMon sheet can be older than the file (saved mid-recording elsewhere). When the log's own metadata lists layers
+  // that have no chart data, read the file again once per session instead of showing nothing.
+  const thickRefetched = new Set();
+  async function refreshThickIfIncomplete(log, thick) {
+    if (!app.client || !navigator.onLine || thickRefetched.has(log.realPath)) return;
+    const items = VTECore.thickItems(VTECore.readSheetMeta(app.model.rowsOf(log.realPath) || [])).filter(it => it.t0);
+    if (!items.length || items.every(it => thick.get(Number(it.i) + 1)?.points.length)) return;
+    thickRefetched.add(log.realPath);
+    try {
+      const {data, rev, contentHash} = await app.client.download(log.realPath);
+      const wb = VTEStore.readWorkbook(XLSX, data);
+      const rec = await app.store.getFile(log.realPath);
+      if (rec) await app.store.putFile({...rec, ...wb, rev: rev || rec.rev, contentHash: contentHash || rec.contentHash});
+      app.model.setExtra(log.realPath, wb.extra);
+      if ($("#screen-log-detail") && !$("#screen-log-detail").hidden && $("#logDetail").dataset.path === log.realPath) renderLogDetail(log);
+    } catch (e) {}
+  }
   function thickSummary(sum) {
     if (!sum) return "";
     const v = k => (sum[k] === null || sum[k] === undefined || sum[k] === "" ? null : sum[k]);
@@ -152,6 +169,7 @@
     if (app.model.extraOf(log.realPath) === undefined && app.client) {
       app.ensureExtra(log).then(extra => { if (extra && extra.some(s => s.name === VTECore.THICK_SHEET) && $("#screen-log-detail") && !$("#screen-log-detail").hidden && $("#logDetail").dataset.path === log.realPath) renderLogDetail(log); });
     }
+    if (app.model.extraOf(log.realPath) !== undefined) refreshThickIfIncomplete(log, thick);
     const kv = (label, value) => value === "" || value === null || value === undefined ? "" : `<div><span>${label}</span><span>${esc(value)}</span></div>`;
     $("#logDetail").innerHTML = `
       <div class="card">
@@ -191,9 +209,11 @@
     show("log-detail");
     for (const canvas of $$("#logDetail canvas[data-logchart]")) {
       const t = thick.get(Number(canvas.dataset.logchart));
+      try {
       const pts = t.points.slice().sort((a, b) => a.ts - b.ts);
       const sum = t.sum || [];
       VTEThick.drawChart(canvas, pts, pts[0].ts * 1000, Math.max(pts[pts.length - 1].ts * 1000, pts[0].ts * 1000 + 1000), Number(sum[16]) || 0, Number(sum[17]) || 0, pts[0].sensor, {panels: ["thk_med", "rate_fit"], height: 92, title: VTEThick.chartTitle(pts[0].sensor, [], layers[Number(canvas.dataset.logchart) - 1]?.material)});
+      } catch (e) { console.error("thick chart", e); }
     }
   }
 
