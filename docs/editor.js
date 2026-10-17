@@ -229,7 +229,7 @@
       $("#startPanel").hidden = $("#structurePanel").hidden;
       if (draft) renderEditor(); else renderPresets();
       syncRunningState();
-      if (draft) Thick.watch(thickLayer, () => Boolean(draft) && app.tab === "record"); else Thick.stop();
+      if (draft) Thick.watch(thickCtx, () => Boolean(draft) && app.tab === "record"); else Thick.stop();
     }
     function renderPresets() {
       const q = $("#presetSearch").value.trim().toLowerCase();
@@ -478,8 +478,20 @@
     }
     // Thickness-monitor sensor choice (A-D) per layer; shown only when a monitor server is configured.
     const thickSelect = (l, i) => !Thick.enabled() ? "" : `<div class="thick-row"><label>두께 센서<select data-i="${i}" data-k="sensor_port">${["", ...Thick.SENSORS].map(p => `<option ${p === (l.sensor_port || "") ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>${l.sensor_port ? '<span class="thick-status" data-thickstatus></span>' : ""}</div>`;
-    const thickExtra = (l, i) => !Thick.enabled() || !l.sensor_port ? "" : `${measureRow(l, i, "thk")}<canvas class="thick-chart" data-thickchart data-i="${i}"></canvas>`;
-    const thickLayer = i => draft?.layers[i];
+    const thickExtra = (l, i) => !Thick.enabled() || !l.sensor_port ? "" : `${measureRow(l, i, "thk")}
+      <div class="thick-box" data-thickbox data-i="${i}">
+        <div class="thick-live">
+          <div><b data-live="rate">–</b><small>지금 Å/s</small></div>
+          <div><b data-live="thk">–</b><small>이번 층 nm</small></div>
+          <div><b data-live="eta">–</b><small>목표까지</small></div>
+        </div>
+        <div class="thick-note" data-live="note"></div>
+        <canvas class="thick-chart" data-thickchart data-i="${i}"></canvas>
+      </div>`;
+    const thickCtx = {
+      layers: () => (draft ? draft.layers : []),
+      set(i, patch) { if (!draft || !draft.layers[i]) return; Object.assign(draft.layers[i], patch); persist(); patchCard(i); }
+    };
     const cardHtml = (idx, n) => (draft.layers[idx[0]].codep ? codepCard(idx, n, draft.type === "툴링") : layerCard(draft.layers[idx[0]], idx[0], draft.type === "툴링", n));
     function layerCard(l, i, isTooling, n) {
       const placeholder = k => placeholderFor(l, i, k);
@@ -645,21 +657,18 @@
      *              again overwrites it instead of leaving a trail of copies.
      *   "saveAs" — write a new file under a fresh name and keep recording in that one.
      */
-    // Extra "ThickMon" sheet: per-layer start/end readings, then the recorded series. Absent when no sensor was chosen or the server is unreachable.
-    async function buildThickSheet(layers) {
-      const used = layers.map((l, i) => ({l, i})).filter(({l}) => l.sensor_port && l.started_ms);
-      if (!used.length || !Thick.enabled()) return null;
-      const aoa = [["Layer", "Material", "Source", "Sensor", "Start", "End", "Start thk (nm)", "End thk (nm)"]];
-      const series = [["Layer", "Sensor", "Time", "Epoch (s)", "Thickness median 5s (nm)", "Rate fit 10s (A/s)", "Raw RS232 rate (A/s, untrusted)", "Power (%)"]];
-      let got = 0;
-      for (const {l, i} of used) {
-        aoa.push([i + 1, l.material || "", l.port || "", l.sensor_port, l.started_at || "", l.ended_at || "", l.start_thk || "", l.end_thk || ""]);
-        const rows = await Thick.series(l.sensor_port, l.started_ms, l.ended_ms || Date.now());
-        got += (rows || []).length;
-        for (const r of rows || []) series.push([i + 1, l.sensor_port, new Date(r.ts * 1000).toTimeString().slice(0, 8), Math.round(r.ts), r.thk_med, r.rate_fit, l.sensor_port === "D" ? "" : r.rate, l.sensor_port === "D" ? "" : r.power]);
+    // Sheets after the first are carried over untouched; ThickMon is only ever merged: rows already in the file stay, server rows are added.
+    async function buildExtraSheets(layers, editing) {
+      const summary = [];
+      const series = [];
+      if (Thick.enabled()) {
+        for (const {l, i} of layers.map((l, i) => ({l, i})).filter(({l}) => l.sensor_port && l.started_ms)) {
+          summary.push(Core.thickSummaryRow(l, i));
+          const rows = await Thick.series(l.sensor_port, l.started_ms - 30000, l.ended_ms ? Math.min(Date.now(), l.ended_ms + 180000) : Date.now());
+          series.push(...Core.thickSeriesRows(l, i, rows));
+        }
       }
-      if (!got && !aoa.slice(1).some(r => r[6] || r[7])) return null;
-      return {sheetTitle: "ThickMon", aoa: [...aoa, [], ...series], cols: [7, 14, 8, 8, 17, 17, 12, 12, 12]};
+      return Core.mergeExtraSheets(editing && editing.extra, summary, series);
     }
     async function uploadDraft(mode = "close") {
       const d = draft;
@@ -681,16 +690,17 @@
         ? {...editing.meta, App: `VTE Log PWA ${config.version}`, "Modified By": author(), "Modified At": nowText(), Device: deviceName(), Preset: d.preset || editing.meta.Preset || ""}
         : {App: `VTE Log PWA ${config.version}`, Author: author(), Device: deviceName(), "Created At": d.createdAt, Preset: d.preset};
       meta[Core.PROCESS_ID_KEY] = Core.keepProcessId(editing && editing.meta, d.date, tag);
+      layers.forEach(l => { if (l.det_ms && !l.det_power) l.det_power = String(l.start_power || ""); if (l.det_ms && !l.det_temp) l.det_temp = String(l.start_temp || ""); });
       Object.assign(meta, Core.maskHoldersToMeta(d.maskHolders), Core.samplesToMeta(layers, d.maskHolders), Core.thickToMeta(layers));
       const sheet = Core.buildProcessLogSheet({isTooling, layers: Core.draftLayersToEditorRows(layers), memo: d.memo, meta, timeTag: tag});
-      const thickSheet = await buildThickSheet(layers);
+      const extraSheets = await buildExtraSheets(layers, editing);
       const newPath = `${savePrefix()}${Core.processLogFolder(isTooling, d.date).join("/")}/${Core.pathSafe(sheet.fileName)}`;
       // Edit in place only in the matching mode (test file in test mode, real file otherwise) and while the file still exists;
       // a file deleted since opening is saved as a new file instead of being silently recreated.
-      const inPlace = mode !== "saveAs" && editing && editing.test === testMode()
+      const inPlace = mode !== "saveAs" && editing && !editing.lossy && editing.test === testMode()
         && editing.origType === d.type && editing.origDate === d.date && Boolean(fileRev(editing.realPath));
       const job = {kind: "log", label: sheet.fileName, relPath: inPlace ? editing.realPath : newPath, rev: inPlace ? fileRev(editing.realPath) : null,
-        fallbackPath: newPath, what: "로그", bytes: toWorkbook(thickSheet ? [sheet, thickSheet] : [sheet]), draft: d};
+        fallbackPath: newPath, what: "로그", bytes: toWorkbook([sheet, ...extraSheets]), draft: d};
       const queueDraft = async () => {
         await enqueue(job);
         draft = null;
@@ -783,10 +793,16 @@
       const rows = app.model.rowsOf(log.realPath) || [];
       const meta = Core.readSheetMeta(rows);
       const layers = Core.thickFromMeta(meta, Core.draftLayersFromRows(rows));
+      // Sheets after the first travel with the draft so saving writes them back. If they cannot be read, do not silently drop them.
+      const extra = await app.ensureExtra(log);
+      if (!extra && !confirm("이 파일의 추가 시트(ThickMon 등)를 읽지 못했어요.\n지금 저장하면 추가 시트가 사라질 수 있어요. 그래도 수정할까요?")) return;
+      // A file the editor cannot rewrite faithfully (old hand-made / converted layouts) is never overwritten: saving makes a new file.
+      const lossy = layers.length > 0 && Core.editRoundTripLossy(rows, layers, meta, log.type === "툴링");
+      if (lossy && !confirm("이 옛 포맷 파일은 수정해서 저장하면 표기가 달라질 수 있어요.\n원본은 그대로 두고 새 파일로 저장할게요. 계속할까요?")) return;
       if (!layers.length && !confirm("이 파일은 매니저 양식이 아니라 레이어를 불러오지 못했어요. 빈 로그로 수정할까요?")) return;
       await startDraft({
         type: log.type, date: log.dateStr || Core.currentYYMMDD(), layers, preset: meta.Preset || "", createdAt: meta["Created At"] || "",
-        editing: {realPath: log.realPath, relPath: log.relPath, test: log.test, meta, origType: log.type, origDate: log.dateStr}
+        editing: {realPath: log.realPath, relPath: log.relPath, test: log.test, meta, extra: extra || [], lossy, origType: log.type, origDate: log.dateStr}
       });
       ctx.setTab("record");
     }
@@ -928,7 +944,7 @@
           autofill(layer, {force: true});
         }
         else if (k === "vol" || k === "codep_total" || k === "codep_rate" || k === "monitor") { persist(); patchCard(i); renderStructure(); return; }
-        else if (k === "sensor_port") { layer.sensor_port = el.value; persist(); refreshCard(i); Thick.refresh(thickLayer); return; }
+        else if (k === "sensor_port") { layer.sensor_port = el.value; persist(); refreshCard(i); Thick.refresh(thickCtx); return; }
         else if (k === "port" || k === "tooling_factor") { layer[k] = el.value; autofill(layer, {force: true}); }
         else if (k === "mask") setShared(i, "mask", el.value);
         else return;
@@ -985,11 +1001,18 @@
             const targets = blockOf(i).filter(j => layers[j].sensor_port);
             const snaps = await Promise.all(targets.map(j => Thick.snapshot(layers[j].sensor_port)));
             targets.forEach((j, n) => {
-              const s = snaps[n];
-              if (!s) return;
-              if (s.rate !== null) layers[j][`${when}_rate`] = Thick.fmtNum(s.rate, 3);
-              if (s.power !== null) layers[j][`${when}_power`] = Thick.fmtNum(s.power, 1);
-              if (s.thk !== null) layers[j][`${when}_thk`] = Thick.fmtNum(s.thk, 2);
+              const s = snaps[n] || {};
+              const l = layers[j];
+              if (act === "start") Object.assign(l, {end_thk: "", mon_diff: "", avg_rate: "", heat: "", heat_delta: "", det_ms: 0, det_power: "", det_temp: ""});
+              else Object.assign(l, {mon_diff: "", avg_rate: "", heat: "", heat_delta: ""});
+              l[`${when}_thk`] = s.thk === null || s.thk === undefined ? "" : Thick.fmtNum(s.thk, 2);
+              l[`${when}_rate`] = s.rate === null || s.rate === undefined ? "" : Thick.fmtNum(s.rate, 3);
+              if (s.power !== null && s.power !== undefined) l[`${when}_power`] = Thick.fmtNum(s.power, 1);
+              l[`${when}_pending`] = l[`${when}_thk`] && l[`${when}_rate`] ? "" : "1";
+              if (act === "end" && l.start_thk && l.end_thk) {
+                const res = Core.thickResult({startThk: l.start_thk, endThk: l.end_thk, startMs: l.started_ms, endMs: l.ended_ms});
+                if (res) { l.mon_diff = Thick.fmtNum(res.diff, 2); l.avg_rate = Thick.fmtNum(res.avgRate, 3); }
+              }
             });
           }
           if (act === "end") setShared(i, "collapsed", true);

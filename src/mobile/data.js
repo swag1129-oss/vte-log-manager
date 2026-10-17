@@ -10,12 +10,14 @@
 
   function createModel(files) {
     // `viewPath` lets test-folder files (_mobile_test/…) appear at their normal place; `realPath` is where they live.
-    const view = files.map(f => ({relPath: f.viewPath || f.relPath, realPath: f.relPath, name: f.name, rev: f.rev || null, test: Boolean(f.viewPath), rows: f.rows}));
+    const view = files.map(f => ({relPath: f.viewPath || f.relPath, realPath: f.relPath, name: f.name, rev: f.rev || null, test: Boolean(f.viewPath), rows: f.rows, extra: f.extra}));
     // Rows are keyed by the real Dropbox path: a test copy must never stand in for a real file with the same view path.
     const rowsByPath = new Map(view.map(f => [f.realPath, f.rows]));
-    const {logs, calibrationFiles} = Core.buildFileIndex(view.map(({rows, ...meta}) => meta));
+    // Sheets after the first (undefined = cached before extras were kept; the app then re-reads the file when it needs them).
+    const extraByPath = new Map(view.map(f => [f.realPath, f.extra]));
+    const {logs, calibrationFiles} = Core.buildFileIndex(view.map(({rows, extra, ...meta}) => meta));
     const presets = view.filter(f => /^(Presets|Structures)\/[^/]+\.xlsx$/i.test(f.relPath))
-      .map(({rows, ...meta}) => ({...meta, kind: meta.relPath.startsWith("Presets/") ? "preset" : "structure", title: meta.name.replace(/\.xlsx$/i, "")}))
+      .map(({rows, extra, ...meta}) => ({...meta, kind: meta.relPath.startsWith("Presets/") ? "preset" : "structure", title: meta.name.replace(/\.xlsx$/i, "")}))
       .sort((a, b) => (a.kind === b.kind ? a.title.localeCompare(b.title) : a.kind === "preset" ? -1 : 1));
     const parseCache = new Map();
     const measurementCache = new Map();
@@ -109,10 +111,25 @@
         const found = new Map(wanted.map(m => [Core.norm(m), []]));
         for (const log of logs) {
           const parsed = parseLog(log);
+          // Layers whose deposition start the thickness monitor detected (rate_fit > 0.1 A/s for 10 s): the power/temperature the user
+          // entered at that moment count as the start condition whatever the logged start rate was.
+          const logRows = rowsByPath.get(log.realPath || log.relPath) || [];
+          const detected = new Map();
+          if (Core.thickItems(Core.readSheetMeta(logRows)).some(it => it.ds)) {
+            for (const dl of Core.thickFromMeta(Core.readSheetMeta(logRows), Core.draftLayersFromRows(logRows))) {
+              if (dl.det_ms && dl._seq !== undefined && !String(dl.material).includes(":")) detected.set(dl._seq, dl);
+            }
+          }
+          for (const dl of detected.values()) {
+            const list = found.get(Core.norm(dl.material));
+            const power = Core.toFloat(dl.det_power), temp = Core.toFloat(dl.det_temp);
+            if (list && (power !== null || temp !== null)) list.push({power, temp, date: log.dateStr || "", dateKey: log.dateKey || 0});
+          }
           for (const [lm, items] of Object.entries(parsed.layers)) {
             const mats = lm.split(":").map(x => x.trim());
             if (!mats.some(m => found.has(Core.norm(m)))) continue;
             for (const l of items) {
+              if (detected.has(l.sequence)) continue;
               const rate = parts(l.rate, mats.length), power = parts(l.start_power ?? l.power, mats.length), temp = parts(l.start_temp ?? l.temp, mats.length);
               mats.forEach((m, k) => {
                 const list = found.get(Core.norm(m));
@@ -147,7 +164,13 @@
     }
 
     const rowsOf = realPath => rowsByPath.get(realPath) || null;
-    return {logs, presets, rowsOf, materials, filesByMaterial, parseLog, orderedLayers, sourceHistory, startConditions, searchLogs, measurements, calibrationHistory, latestCalibration, comboOptions};
+    const extraOf = realPath => extraByPath.get(realPath);
+    const setExtra = (realPath, extra) => extraByPath.set(realPath, extra);
+    const thickOf = realPath => {
+      const sheet = (extraByPath.get(realPath) || []).find(s => s.name === Core.THICK_SHEET);
+      return sheet ? Core.thickPoints(sheet.aoa) : new Map();
+    };
+    return {logs, presets, rowsOf, extraOf, setExtra, thickOf, materials, filesByMaterial, parseLog, orderedLayers, sourceHistory, startConditions, searchLogs, measurements, calibrationHistory, latestCalibration, comboOptions};
   }
 
   return {createModel};

@@ -4,7 +4,7 @@
   const CONFIG = {
     appKey: "5rz8t9p1imu4wa9",
     defaultRoot: "/NEXT LAB/Log/A222/VTE log/VTE_MANAGER",
-    version: "2026-10-17-d4aa6a24"
+    version: "2026-10-17-5cdc8bb1"
   };
   const LS = {author: "vte.author", root: "vte.root"};
   const {fmt, displayDate, calcRequiredMonitor, calcMonitorRate} = VTECore;
@@ -119,9 +119,39 @@
     if (a !== null && a !== undefined && a !== "" && b !== null && b !== undefined && b !== "" && String(a) !== String(b)) return `${fmt(a)} → ${fmt(b)}`;
     return fmt(a ?? b ?? "");
   }
+  // Sheets after the first (ThickMon etc.). Files cached before those were kept are read again once, only when a log is opened or edited.
+  app.ensureExtra = async log => {
+    let extra = app.model.extraOf(log.realPath);
+    if (extra) return extra;
+    try {
+      const {data} = await app.client.download(log.realPath);
+      extra = VTEStore.readWorkbook(XLSX, data).extra;
+      const rec = await app.store.getFile(log.realPath);
+      if (rec) await app.store.putFile({...rec, extra});
+      app.model.setExtra(log.realPath, extra);
+      return extra;
+    } catch (e) {
+      return null;
+    }
+  };
+  function thickSummary(sum) {
+    if (!sum) return "";
+    const v = k => (sum[k] === null || sum[k] === undefined || sum[k] === "" ? null : sum[k]);
+    const parts = [];
+    if (v(8) !== null) parts.push(`모니터 ${esc(fmt(v(8), 2))} nm`);
+    if (v(9) !== null) parts.push(`평균 레이트 ${esc(fmt(v(9), 3))} Å/s`);
+    if (v(10) !== null) parts.push(`끝 ${esc(fmt(v(10), 3))} Å/s`);
+    if (v(11) !== null) parts.push(`증착 시작 ${esc(v(11))}${v(12) !== null ? ` · P ${esc(fmt(v(12)))}` : ""}${v(13) !== null ? ` · T ${esc(fmt(v(13)))}` : ""}`);
+    if (v(14) === "suspect") parts.push(`<b class="warn">열 영향 의심 (끝난 뒤 ${esc(fmt(v(15), 2))} nm 감소)</b>`);
+    return parts.length ? `<div class="thick-note">${parts.join(" · ")}</div>` : "";
+  }
   function renderLogDetail(log) {
     const parsed = app.model.parseLog(log);
     const layers = app.model.orderedLayers(log);
+    const thick = app.model.thickOf(log.realPath);
+    if (app.model.extraOf(log.realPath) === undefined && app.client) {
+      app.ensureExtra(log).then(extra => { if (extra && extra.some(s => s.name === VTECore.THICK_SHEET) && $("#screen-log-detail") && !$("#screen-log-detail").hidden && $("#logDetail").dataset.path === log.realPath) renderLogDetail(log); });
+    }
     const kv = (label, value) => value === "" || value === null || value === undefined ? "" : `<div><span>${label}</span><span>${esc(value)}</span></div>`;
     $("#logDetail").innerHTML = `
       <div class="card">
@@ -148,6 +178,8 @@
             ${kv("Ratio", fmt(l.ratio, 6))}
             ${kv("TF", fmt(l.tooling_factor))}
           </div>
+          ${thickSummary(thick.get(i + 1)?.sum)}
+          ${thick.get(i + 1)?.points.length ? `<canvas class="thick-chart" data-logchart="${i + 1}"></canvas>` : ""}
           ${l.notes ? `<div class="notes">${esc(l.notes)}</div>` : ""}
         </div>`).join("") || `<p class="hint">레이어 기록이 없어요.</p>`}
       <p class="hint">${esc(log.realPath || log.relPath)}</p>`;
@@ -155,7 +187,14 @@
     $("#deleteLogBtn").onclick = () => deleteLog(log);
     const holders = VTECore.maskHoldersFromMeta(VTECore.readSheetMeta(app.model.rowsOf(log.realPath) || []));
     renderLogStack(layers, VTECore.sampleVariants(layers, holders, "").variants, 1);
+    $("#logDetail").dataset.path = log.realPath;
     show("log-detail");
+    for (const canvas of $$("#logDetail canvas[data-logchart]")) {
+      const t = thick.get(Number(canvas.dataset.logchart));
+      const pts = t.points.slice().sort((a, b) => a.ts - b.ts);
+      const sum = t.sum || [];
+      VTEThick.drawChart(canvas, pts, pts[0].ts * 1000, Math.max(pts[pts.length - 1].ts * 1000, pts[0].ts * 1000 + 1000), Number(sum[16]) || 0, Number(sum[17]) || 0, pts[0].sensor, {panels: ["thk_med", "rate_fit"], height: 80});
+    }
   }
 
   // Stack drawing for a saved log. Co-deposition layers ("A:B") are split into side-by-side parts.

@@ -231,3 +231,10 @@ input, select, textarea { font-size: 16px; }
 .thick-row label { flex: 0 0 120px; }
 .thick-status { font-size: 12px; opacity: .7; padding-bottom: 10px; }
 .thick-chart { width: 100%; display: block; margin-top: 6px; color: inherit; }
+.thick-box { margin-top: 6px; }
+.thick-live { display: flex; gap: 6px; text-align: center; }
+.thick-live > div { flex: 1; background: var(--blue-soft); border-radius: 8px; padding: 6px 2px; }
+.thick-live b { display: block; font-size: 24px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.thick-live small { font-size: 11px; opacity: .7; }
+.thick-note { font-size: 12px; margin: 6px 0 2px; opacity: .85; }
+.thick-note .warn { color: #c53030; }

@@ -26,6 +26,7 @@
     const db = await openDb();
     return {
       async allFiles() { return result(db.transaction("files").objectStore("files").getAll()); },
+      async getFile(relPath) { return result(db.transaction("files").objectStore("files").get(relPath)); },
       async putFile(file) { const tx = db.transaction("files", "readwrite"); tx.objectStore("files").put(file); await done(tx); },
       async deleteFiles(relPaths) {
         if (!relPaths.length) return;
@@ -45,13 +46,17 @@
   }
 
   const LOG_FOLDERS = /^(_mobile_test\/)?(Process_General|Process_Tooling|Calibration|Structures|Presets)\//;
-  const readRows = (XLSX, data) => {
+  // The first sheet is read exactly as before. Every further sheet (ThickMon, or anything an older tool added) is kept as plain rows
+  // so an edit can write it back unchanged.
+  const readWorkbook = (XLSX, data) => {
     const wb = XLSX.read(data instanceof Uint8Array ? data : new Uint8Array(data), {type: "array", cellDates: false});
-    return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header: 1, raw: true, defval: null});
+    const grid = name => XLSX.utils.sheet_to_json(wb.Sheets[name], {header: 1, raw: true, defval: null});
+    return {rows: grid(wb.SheetNames[0]), extra: wb.SheetNames.slice(1).map(name => ({name, aoa: grid(name)}))};
   };
+  const readRows = (XLSX, data) => readWorkbook(XLSX, data).rows;
   // After an upload, cache what was written so the app shows it without a full sync.
   async function cacheUploaded({store, XLSX, relPath, data, result}) {
-    await store.putFile({relPath, name: relPath.split("/").pop(), rev: result.rev, contentHash: result.content_hash, modified: result.server_modified, rows: readRows(XLSX, data)});
+    await store.putFile({relPath, name: relPath.split("/").pop(), rev: result.rev, contentHash: result.content_hash, modified: result.server_modified, ...readWorkbook(XLSX, data)});
   }
 
   /*
@@ -75,8 +80,7 @@
         const f = changed[next++];
         try {
           const {data, rev, contentHash} = await client.download(f.relPath);
-          const rows = readRows(XLSX, data);
-          await store.putFile({relPath: f.relPath, name: f.name, rev: rev || f.rev, contentHash: contentHash || f.contentHash, modified: f.modified, rows});
+          await store.putFile({relPath: f.relPath, name: f.name, rev: rev || f.rev, contentHash: contentHash || f.contentHash, modified: f.modified, ...readWorkbook(XLSX, data)});
         } catch (err) {
           failed.push({relPath: f.relPath, error: String(err.message || err)});
         }
@@ -90,5 +94,5 @@
     return {files: remote.length, downloaded: changed.length - failed.length, removed: removed.length, failed, at: syncedAt};
   }
 
-  root.VTEStore = {createStore, sync, cacheUploaded};
+  root.VTEStore = {createStore, sync, cacheUploaded, readWorkbook};
 })(typeof globalThis !== "undefined" ? globalThis : this);

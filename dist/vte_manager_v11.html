@@ -1082,30 +1082,154 @@
       temp_start: str(l.start_temp), temp_end: str(l.end_temp), started_at: str(l.started_at), ended_at: str(l.ended_at)
     };
   }
-  // Thickness-monitor choices per layer (index in the saved layer list), kept in the log meta so reopening restores them.
+  // Thickness-monitor data per layer (index in the saved layer list), kept in the log meta so reopening restores it.
   const THICK_KEY = "ThickSensors";
+  const THICK_SHEET = "ThickMon";
+  // meta short key -> draft layer key
+  const THICK_FIELDS = {s: "sensor_port", a: "start_thk", b: "end_thk", d: "mon_diff", r: "avg_rate", dp: "det_power", dt: "det_temp", h: "heat", hd: "heat_delta"};
   function thickToMeta(layers) {
     const items = [];
     (layers || []).forEach((l, i) => {
       if (!l.sensor_port) return;
-      items.push({i, s: l.sensor_port, t0: l.started_ms || 0, t1: l.ended_ms || 0, a: l.start_thk || "", b: l.end_thk || ""});
+      const it = {i, t0: l.started_ms || 0, t1: l.ended_ms || 0};
+      for (const [k, f] of Object.entries(THICK_FIELDS)) it[k] = l[f] === undefined || l[f] === null ? "" : String(l[f]);
+      if (l.det_ms) it.ds = l.det_ms;
+      items.push(it);
     });
     return {[THICK_KEY]: items.length ? JSON.stringify(items) : ""};
   }
-  function thickFromMeta(meta, layers) {
+  function thickItems(meta) {
     let items = [];
-    try { items = JSON.parse((meta && meta[THICK_KEY]) || "[]"); } catch (e) { return layers; }
-    if (!Array.isArray(items)) return layers;
-    for (const it of items) {
+    try { items = JSON.parse((meta && meta[THICK_KEY]) || "[]"); } catch (e) { return []; }
+    return Array.isArray(items) ? items : [];
+  }
+  function thickFromMeta(meta, layers) {
+    for (const it of thickItems(meta)) {
       const l = layers[it.i];
       if (!l) continue;
-      l.sensor_port = String(it.s || "");
       if (it.t0) l.started_ms = Number(it.t0);
       if (it.t1) l.ended_ms = Number(it.t1);
-      if (it.a) l.start_thk = String(it.a);
-      if (it.b) l.end_thk = String(it.b);
+      if (it.ds) l.det_ms = Number(it.ds);
+      for (const [k, f] of Object.entries(THICK_FIELDS)) if (it[k] !== undefined && it[k] !== "") l[f] = String(it[k]);
+      l.sensor_port = String(it.s || "");
     }
     return layers;
+  }
+  // One-touch result: monitor thickness = end - start (nm); mean rate = thickness / elapsed time (A/s). The only arithmetic the app does itself.
+  function thickResult({startThk, endThk, startMs, endMs}) {
+    const a = toFloat(startThk), b = toFloat(endThk);
+    if (a === null || b === null || !startMs || !endMs || endMs <= startMs) return null;
+    const diff = b - a;
+    return {diff, avgRate: diff * 10 / ((endMs - startMs) / 1000)};
+  }
+  // First time rate_fit stays above `thr` A/s for `hold` seconds. rows: [{ts (s), rate_fit}] in time order.
+  function detectStart(rows, {thr = 0.1, hold = 10} = {}) {
+    let run = null;
+    for (const r of rows || []) {
+      const v = toFloat(r.rate_fit);
+      if (v === null || v <= thr) { run = null; continue; }
+      if (run === null) run = r.ts;
+      if (r.ts - run >= hold) return {start: run, confirmed: r.ts};
+    }
+    return null;
+  }
+  // After the end: did the monitor thickness fall (heat from the source)? rows: points after the end click; scanning stops at a reset.
+  function heatCheck(rows, endThk, drop = 0.3) {
+    const end = toFloat(endThk);
+    if (end === null) return null;
+    let min = null;
+    for (const r of rows || []) {
+      if (r.flag === "reset") break;
+      const v = toFloat(r.thk_med);
+      if (v !== null && (min === null || v < min)) min = v;
+    }
+    if (min === null) return null;
+    const delta = Math.max(0, end - min);
+    return {delta, suspect: delta >= drop};
+  }
+  const SUMMARY_HEAD = ["Layer", "Material", "Source", "Sensor", "Start", "End", "Start thk (nm)", "End thk (nm)", "Monitor thk (nm)", "Mean rate (A/s)", "End rate (A/s)",
+    "Deposition start", "Start power", "Start temp", "Heat check", "Heat drop (nm)", "Start epoch (ms)", "End epoch (ms)"];
+  const SERIES_HEAD = ["Layer", "Sensor", "Time", "Epoch (s)", "Thickness median 5s (nm)", "Rate fit 10s (A/s)", "Raw RS232 rate (A/s, untrusted)", "Power (%)", "Flag"];
+  const blankRow = r => !r || r.every(c => c === null || c === undefined || c === "");
+  // Existing sheet -> {summary, series} without header rows. Anything unrecognised returns null so the caller keeps the sheet untouched.
+  function thickSheetParse(aoa) {
+    const rows = aoa || [];
+    const cut = rows.findIndex(blankRow);
+    if (cut < 1 || norm(rows[0][0]) !== "layer") return null;
+    const rest = rows.slice(cut + 1);
+    if (!rest.length || norm(rest[0][0]) !== "layer") return null;
+    return {summary: rows.slice(1, cut), series: rest.slice(1).filter(r => !blankRow(r))};
+  }
+  function thickSummaryRow(l, i) {
+    return [i + 1, l.material || "", l.port || "", l.sensor_port, l.started_at || "", l.ended_at || "", l.start_thk || "", l.end_thk || "", l.mon_diff || "", l.avg_rate || "",
+      l.end_rate || "", l.det_ms ? new Date(l.det_ms).toTimeString().slice(0, 8) : "", l.det_power || "", l.det_temp || "",
+      l.heat === "1" ? "suspect" : l.heat === "0" ? "ok" : "", l.heat_delta || "", l.started_ms || "", l.ended_ms || ""];
+  }
+  function thickSeriesRows(l, i, rows) {
+    const d = l.sensor_port === "D";
+    return (rows || []).map(r => [i + 1, l.sensor_port, new Date(r.ts * 1000).toTimeString().slice(0, 8), Math.round(r.ts * 10) / 10, r.thk_med ?? null, r.rate_fit ?? null, d ? "" : r.rate ?? null, d ? "" : r.power ?? null, r.flag || ""]);
+  }
+  // Merge new summary/series rows into an existing ThickMon sheet. Old rows are never dropped: series are unioned by sensor + second,
+  // old summary rows survive unless the new one describes the same sensor and start. Unparseable old sheets are returned unchanged.
+  function thickSheetMerge(oldAoa, newSummary, newSeries) {
+    const old = oldAoa && oldAoa.length ? thickSheetParse(oldAoa) : {summary: [], series: []};
+    if (!old) return oldAoa;
+    const key = r => `${r[3]}|${r[4]}`;
+    const fresh = new Set(newSummary.map(key));
+    const summary = [...newSummary, ...old.summary.filter(r => !fresh.has(key(r)))];
+    const seen = new Set();
+    const merged = [];
+    for (const r of [...old.series, ...newSeries]) {
+      const k = `${r[1]}|${Math.round(Number(r[3]))}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      merged.push(r.slice());
+    }
+    merged.sort((x, y) => String(x[1]).localeCompare(String(y[1])) || Number(x[3]) - Number(y[3]));
+    for (const r of merged) {
+      const t = Number(r[3]) * 1000;
+      const hit = summary.find(s => s[3] === r[1] && Number(s[16]) && t >= Number(s[16]) - 200000 && t <= (Number(s[17]) || Date.now() + 86400000) + 200000);
+      if (hit) r[0] = hit[0];
+    }
+    const width = Math.max(SERIES_HEAD.length, ...merged.map(r => r.length));
+    return [SUMMARY_HEAD, ...summary, [], SERIES_HEAD, ...merged.map(r => Array.from({length: width}, (_, c) => (r[c] === undefined ? null : r[c])))];
+  }
+  // Would opening this log in the editor and saving it back rewrite its first sheet into something that parses differently?
+  // (Old hand-made / converted files with co-deposition rows can.) Such files must be saved as a new file, never over the original.
+  function editRoundTripLossy(rows, layers, meta, isTooling) {
+    const sig = parsed => Object.entries(parsed.layers).flatMap(([material, items]) => items.map(i => ({material, i})))
+      .sort((a, b) => a.i.sequence - b.i.sequence)
+      .map(({material, i}) => [material, i.port, i.target_actual, i.rate, i.start_power ?? i.power, i.end_power, i.start_temp ?? i.temp, i.end_temp, i.start_pressure, i.end_pressure, i.monitor_thickness, i.actual_thickness, i.mask].map(v => (v === null || v === undefined ? "" : String(v).trim())));
+    try {
+      const sheet = buildProcessLogSheet({isTooling: Boolean(isTooling), layers: draftLayersToEditorRows(layers), memo: "", meta: meta || {}, timeTag: "0000"});
+      return JSON.stringify(sig(parseProcessRows(rows))) !== JSON.stringify(sig(parseProcessRows(sheet.aoa)));
+    } catch (e) {
+      return true;
+    }
+  }
+  // Sheets to write after the first one: every old sheet kept as is, ThickMon merged with the new rows (never replaced).
+  function mergeExtraSheets(oldExtra, summary, series) {
+    const old = oldExtra || [];
+    const sheets = old.filter(s => s.name !== THICK_SHEET).map(s => ({sheetTitle: s.name, aoa: s.aoa}));
+    const oldThick = old.find(s => s.name === THICK_SHEET);
+    if (oldThick || summary.length) {
+      sheets.push({sheetTitle: THICK_SHEET, aoa: thickSheetMerge(oldThick ? oldThick.aoa : null, summary, series), cols: [7, 14, 8, 8, 17, 17, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 14, 14]});
+    }
+    return sheets;
+  }
+  // ThickMon sheet -> {layers: Map(layerNo -> {sum, points})} for the log viewer.
+  function thickPoints(aoa) {
+    const parsed = thickSheetParse(aoa);
+    if (!parsed) return new Map();
+    const out = new Map();
+    const at = no => out.get(no) || out.set(no, {sum: null, points: []}).get(no);
+    for (const s of parsed.summary) if (Number(s[0])) at(Number(s[0])).sum = s;
+    for (const r of parsed.series) {
+      const ts = Number(r[3]);
+      if (!Number.isFinite(ts) || !Number(r[0])) continue;
+      at(Number(r[0])).points.push({ts, sensor: r[1], thk_med: toFloat(r[4]), rate_fit: toFloat(r[5]), rate: toFloat(r[6]), power: toFloat(r[7]), flag: r[8] || ""});
+    }
+    return out;
   }
   // name=value pairs written across row 1 from column W.
   function readSheetMeta(rawRows) {
@@ -1139,6 +1263,10 @@
           start_temp: str(item.start_temp), end_temp: str(item.end_temp),
           started_at: str(start[EXTRA_COL]), ended_at: paired ? str(end[EXTRA_COL]) : ""};
       });
+    // Sheet row of each layer's start row (not enumerable, so drafts and comparisons stay as before).
+    Object.entries(parsed.layers).flatMap(([, items]) => items).sort((a, b) => a.sequence - b.sequence)
+      .filter(item => norm(item.monitor_thickness) === "start" || item.target_actual !== null || item.required_monitor !== null || item.mask)
+      .forEach((item, k) => { if (layers[k]) Object.defineProperty(layers[k], "_seq", {value: item.sequence, enumerable: false}); });
     for (const members of codepGroups(layers).values()) {
       const total = members.reduce((sum, m) => sum + (toFloat(m.target_actual) ?? 0), 0);
       members.forEach(m => { m.codep_total = total ? fmt(total, 4) : ""; });
@@ -1264,7 +1392,7 @@
     layeredToolingMeasurements, latestOf, legacyCalibrationMeta, legacyCalibrationMeasurements, emptyCalibrationMeta,
     calibrationMetaFromRows, calibrationMeasurementsFromRows, matchCalibration, noCalibration, comboLabel, mergeComboOption,
     buildFileIndex, buildCalibrationIndex,
-    DRAFT_LAYER_DEFAULTS, draftLayerToEditorRow, draftLayersToEditorRows, tagCodepRows, codepShare, CODEP_COL, readSheetMeta, THICK_KEY, thickToMeta, thickFromMeta, draftLayersFromRows, presetToDraftLayers, draftLayersToPresetRows,
+    DRAFT_LAYER_DEFAULTS, draftLayerToEditorRow, draftLayersToEditorRows, tagCodepRows, codepShare, CODEP_COL, readSheetMeta, THICK_KEY, THICK_SHEET, SUMMARY_HEAD, SERIES_HEAD, thickToMeta, thickFromMeta, thickItems, thickResult, detectStart, heatCheck, thickSheetParse, thickSheetMerge, thickPoints, thickSummaryRow, thickSeriesRows, mergeExtraSheets, editRoundTripLossy, draftLayersFromRows, presetToDraftLayers, draftLayersToPresetRows,
     buildPresetWorkbookSheets, safeFileName, pathSafe, timeTag, PROCESS_ID_KEY, processId, keepProcessId,
     setAoa, buildProcessLogSheet, processLogFolder, buildCalibrationSheet, buildStructureSheet, structureRowsFromSheet
   };
