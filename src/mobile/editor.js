@@ -477,7 +477,7 @@
             </div>`;
     }
     // Thickness-monitor sensor choice (A-D) per layer; shown only when a monitor server is configured.
-    const thickSelect = (l, i) => !Thick.enabled() ? "" : `<div class="thick-row"><label>두께 센서<select data-i="${i}" data-k="sensor_port">${["", ...Thick.SENSORS].map(p => `<option ${p === (l.sensor_port || "") ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>${l.sensor_port ? '<span class="thick-status" data-thickstatus></span>' : ""}</div>`;
+    const thickSelect = (l, i) => !Thick.enabled() ? "" : `<div class="thick-row"><label>두께 센서<select data-i="${i}" data-k="sensor_port">${["", ...Thick.SENSORS].map(p => `<option ${p === (l.sensor_port || "") ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>${l.sensor_port ? '<span class="thick-status" data-thickstatus></span>' : ""}<div class="thick-warn" data-thickwarn="${blockOf(i).join(",")}"></div></div>`;
     const thickExtra = (l, i) => !Thick.enabled() || !l.sensor_port ? "" : `${measureRow(l, i, "thk")}
       <div class="thick-box" data-thickbox data-i="${i}">
         <div class="thick-live">
@@ -944,10 +944,11 @@
           autofill(layer, {force: true});
         }
         else if (k === "vol" || k === "codep_total" || k === "codep_rate" || k === "monitor") { persist(); patchCard(i); renderStructure(); return; }
-        else if (k === "sensor_port") { layer.sensor_port = el.value; persist(); refreshCard(i); Thick.refresh(thickCtx); return; }
+        else if (k === "sensor_port") { layer.sensor_port = el.value; layer.sensor_manual = true; persist(); refreshCard(i); Thick.refresh(thickCtx); return; }
         else if (k === "port" || k === "tooling_factor") { layer[k] = el.value; autofill(layer, {force: true}); }
         else if (k === "mask") setShared(i, "mask", el.value);
         else return;
+        if ((k === "port" || k === "material") && Thick.autoSensor(layer, Boolean(draft.editing))) { persist(); refreshCard(i); Thick.refresh(thickCtx); renderStructure(); return; }
         persist();
         patchCard(i);
         renderStructure();

@@ -1,0 +1,23 @@
+const assert = require("assert/strict");
+global.localStorage = {getItem: () => null};
+const T = require("../src/mobile/thick.js");
+const Th = global.VTEThick || T;
+const exp = {"M-1": "A1", "M-2": "A2", "M-3": "B1", "O-1": "B2", "O-2": "B2", "O-3": "C1", "O-4": "C1", "O-5": "C2", "O-6": "D1", "O-7": "D1", "O-8": "D2", "O-9": "D2"};
+for (const [s, v] of Object.entries(exp)) { const m = Th.sensorFor(s); assert.equal(m.port + m.sensor, v, s); }
+assert.equal(Th.sensorFor("X-1"), null);
+let l = {port: "O-5", sensor_port: ""};
+assert.ok(Th.autoSensor(l, false)); assert.equal(l.sensor_port, "C");
+l = {port: "O-5", sensor_port: "A", sensor_manual: true};
+assert.ok(!Th.autoSensor(l, false)); assert.equal(l.sensor_port, "A");
+l = {port: "O-5", sensor_port: "A"};
+assert.ok(!Th.autoSensor(l, true)); assert.equal(l.sensor_port, "A");
+assert.ok(Th.autoSensor({port: "O-5"}, true));
+const b = {port: "M-3", sensor_port: "B"};
+assert.match(Th.sensorWarning(b, {B: {sensor: 2}}), /B는 지금 센서 2\(O-1\/O-2\)/);
+assert.equal(Th.sensorWarning(b, {B: {sensor: 1}}), "");
+assert.equal(Th.sensorWarning(b, null), "");
+assert.equal(Th.sensorWarning({port: "M-3", sensor_port: "C"}, {B: {sensor: 2}}), "");
+assert.match(Th.sharedSensorNote([{port: "O-1"}, {port: "O-2"}]), /센서 공유.*두께 합산/);
+assert.equal(Th.sharedSensorNote([{port: "O-1"}, {port: "O-3"}]), "");
+assert.equal(Th.sharedSensorNote([{port: "O-1"}, {port: "O-1"}]), "");
+console.log("ok thick_sensor_map");

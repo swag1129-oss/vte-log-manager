@@ -4,6 +4,34 @@
   const Core = root.VTECore || (typeof require === "function" ? require("../core/vte-core.js") : null);
   const KEY = "vte.thickUrl";
   const SENSORS = ["A", "B", "C", "D"];
+  // Evaporation source -> [monitor port, sensor number on that port]. Single place to edit when the monitor wiring changes.
+  const SOURCE_SENSOR = {"M-1": ["A", 1], "M-2": ["A", 2], "M-3": ["B", 1], "O-1": ["B", 2], "O-2": ["B", 2], "O-3": ["C", 1], "O-4": ["C", 1], "O-5": ["C", 2], "O-6": ["D", 1], "O-7": ["D", 1], "O-8": ["D", 2], "O-9": ["D", 2]};
+  const sensorFor = src => { const m = SOURCE_SENSOR[String(src || "").trim().toUpperCase()]; return m ? {port: m[0], sensor: m[1]} : null; };
+  const sourceNames = (port, sensor) => Object.keys(SOURCE_SENSOR).filter(k => SOURCE_SENSOR[k][0] === port && SOURCE_SENSOR[k][1] === sensor).join("/");
+  // Sets layer.sensor_port from its source unless the user picked one by hand (or an existing log already has one).
+  function autoSensor(layer, editing) {
+    if (layer.sensor_manual || (editing && layer.sensor_port)) return false;
+    const m = sensorFor(layer.port);
+    if (!m || layer.sensor_port === m.port) return false;
+    layer.sensor_port = m.port;
+    return true;
+  }
+  // Warning when the monitor port's active sensor differs from the one wired to the layer's source. `livePorts` = /live `ports`.
+  function sensorWarning(layer, livePorts) {
+    const m = sensorFor(layer.port);
+    if (!m || layer.sensor_port !== m.port) return "";
+    const p = livePorts && livePorts[m.port];
+    if (!p || p.sensor === null || p.sensor === undefined || Number(p.sensor) === m.sensor) return "";
+    return `${m.port}는 지금 센서 ${p.sensor}(${sourceNames(m.port, Number(p.sensor)) || "?"}) — ${layer.port}는 센서 ${m.sensor}`;
+  }
+  // Layers of one co-dep block that share a physical sensor (e.g. O-1 + O-2) read the summed thickness.
+  function sharedSensorNote(layers) {
+    if (!layers || layers.length < 2) return "";
+    const seen = new Map();
+    for (const l of layers) { const m = sensorFor(l.port); if (m) { const k = m.port + m.sensor; seen.set(k, [...(seen.get(k) || []), l.port]); } }
+    const hit = [...seen.values()].find(a => new Set(a).size > 1);
+    return hit ? `센서 공유(${[...new Set(hit)].join("+")}) — 두께 합산` : "";
+  }
   const DEFAULT_URL = "https://thermalevaporator.tail95c053.ts.net";
   const url = () => (localStorage.getItem(KEY) || DEFAULT_URL).trim().replace(/\/+$/, "");
   const enabled = () => Boolean(url());
@@ -273,6 +301,15 @@
   let timer = null;
   async function refresh(ctx, root = document) {
     if (!enabled()) return;
+    const warns = [...root.querySelectorAll("[data-thickwarn]")];
+    if (warns.length) {
+      const lp = await live();
+      for (const el of warns) {
+        const idx = String(el.dataset.thickwarn).split(",").map(Number), ls = ctx.layers();
+        const own = ls[idx[0]];
+        el.textContent = [own ? sensorWarning(own, lp) : "", sharedSensorNote(idx.map(j => ls[j]).filter(Boolean))].filter(Boolean).join(" · ");
+      }
+    }
     for (const canvas of root.querySelectorAll("canvas[data-thickchart]")) {
       const i = Number(canvas.dataset.i);
       const l = ctx.layers()[i];
@@ -351,5 +388,5 @@
     return rows.filter((r, i) => i % step === 0 || r.flag);
   }
 
-  root.VTEThick = {analyze, rowAt, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, series, watch, stop, refresh, drawChart, chartTitle, fmtNum};
+  root.VTEThick = {SOURCE_SENSOR, sensorFor, autoSensor, sensorWarning, sharedSensorNote, analyze, rowAt, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, series, watch, stop, refresh, drawChart, chartTitle, fmtNum};
 })(typeof globalThis !== "undefined" ? globalThis : this);
