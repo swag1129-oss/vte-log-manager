@@ -206,8 +206,8 @@
         g.stroke();
         if (p.slope) {
           // tangent over the server's adaptive window (10-60 s): slope = rate_fit (A/s) = rate/10 nm/s
-          const win = num(last && last.rate_win) || 10;
           const last = rows[rows.length - 1], rf = last && num(last.rate_fit), lv = last && num(last.thk_med);
+          const win = num(last && last.rate_win) || 10;
           if (rf !== null && lv !== null && last.ts * 1000 <= t1) {
             g.strokeStyle = "#e53e3e";
             g.lineWidth = 2.2;
