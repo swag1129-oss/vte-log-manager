@@ -66,7 +66,7 @@
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, w, h);
     const cs = getComputedStyle(canvas), fg = cs.color || "#444";
-    const grid = "rgba(128,128,128,.28)", axis = "rgba(128,128,128,.9)";
+    const grid = "rgba(128,128,128,.32)", gridMinor = "rgba(128,128,128,.14)", axis = "rgba(128,128,128,.9)";
     const left = 46, right = w - 8, x = ms => left + (ms - t0) / Math.max(1, t1 - t0) * (right - left);
     const marks = rows.filter(r => r.flag).map(r => ({ms: r.ts * 1000, flag: r.flag}));
     const spanMin = (t1 - t0) / 60000;
@@ -105,8 +105,13 @@
       // grid
       const ystep = niceStep(hi - lo, Math.max(2, Math.floor(ph / 26)));
       const dec = ystep >= 1 ? 0 : Math.min(3, Math.ceil(-Math.log10(ystep)));
-      g.strokeStyle = grid;
+      g.strokeStyle = gridMinor;
       g.lineWidth = 1;
+      g.beginPath();
+      for (let v = Math.ceil(lo / (ystep / 2)) * (ystep / 2); v <= hi; v += ystep / 2) { g.moveTo(left, Math.round(y(v)) + .5); g.lineTo(right, Math.round(y(v)) + .5); }
+      for (let m = Math.ceil(t0 / 60000 / (stepMin / 2)) * (stepMin / 2); m * 60000 <= t1; m += stepMin / 2) { const xm = Math.round(x(m * 60000)) + .5; g.moveTo(xm, y0); g.lineTo(xm, y0 + ph); }
+      g.stroke();
+      g.strokeStyle = grid;
       g.beginPath();
       for (let v = Math.ceil(lo / ystep) * ystep; v <= hi; v += ystep) { g.moveTo(left, Math.round(y(v)) + .5); g.lineTo(right, Math.round(y(v)) + .5); }
       for (const m of xticks) { g.moveTo(Math.round(x(m)) + .5, y0); g.lineTo(Math.round(x(m)) + .5, y0 + ph); }
@@ -188,7 +193,7 @@
       // legend (top-left inside the panel)
       if (p.dots || p.slope) {
         g.font = "10.5px sans-serif";
-        const items = p.dots ? (dots.length ? [["dot", "RS232 원값"], ["line", "10초 기울기"]] : [["line", "10초 기울기"]]) : [["line", "두께 (5초 중앙값)"], ["tan", "10초 기울기"]];
+        const items = p.dots ? (dots.length ? [["dot", "RS232 원값"], ["line", "10초 기울기"]] : [["line", "10초 기울기"]]) : [["line", "두께 (5초 중앙값)"]];
         let lx = left + 6;
         g.textAlign = "left";
         g.textBaseline = "middle";
