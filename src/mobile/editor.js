@@ -154,6 +154,7 @@
         if (l.rate && !l.start_rate) l.start_rate = l.rate;
         delete l.rate;
       }
+      if (draft && Thick.enabled() && Thick.fillSensors(draft.layers)) await app.store.set("draft", draft);
     }
     async function flush() {
       if (!saveTimer) return;
@@ -188,6 +189,7 @@
       draft = {type, date, memo: "", preset, layers: layers.length ? layers : [{...Core.DRAFT_LAYER_DEFAULTS}], editing, createdAt,
         maskHolders: Core.maskHoldersFromMeta(editing && editing.meta), dirty: false};
       if (!editing) draft.layers.forEach(l => autofill(l));
+      if (Thick.enabled()) Thick.fillSensors(draft.layers);
       await app.store.set("draft", draft);
       render();
     }

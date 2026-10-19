@@ -21,3 +21,10 @@ assert.match(Th.sharedSensorNote([{port: "O-1"}, {port: "O-2"}]), /센서 공유
 assert.equal(Th.sharedSensorNote([{port: "O-1"}, {port: "O-3"}]), "");
 assert.equal(Th.sharedSensorNote([{port: "O-1"}, {port: "O-1"}]), "");
 console.log("ok thick_sensor_map");
+{
+  const ls = [{port: "O-3", sensor_port: ""}, {port: "M-1"}, {port: "O-5", sensor_port: "A", sensor_manual: true}, {port: "O-6", sensor_port: "B"}, {port: "", sensor_port: ""}, {port: "O-1", codep: "g"}, {port: "O-2", codep: "g"}];
+  assert.equal(Th.fillSensors(ls), 4);
+  assert.deepEqual(ls.map(x => x.sensor_port || ""), ["C", "A", "A", "B", "", "B", "B"]);
+  assert.equal(Th.fillSensors(ls), 0);
+}
+console.log("ok fill_sensors");

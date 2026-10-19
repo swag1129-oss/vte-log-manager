@@ -16,6 +16,12 @@
     layer.sensor_port = m.port;
     return true;
   }
+  // Fills only blank sensor_port on every layer (loaded presets/logs/drafts); keeps existing and manual values.
+  function fillSensors(layers) {
+    let n = 0;
+    for (const l of layers || []) if (!l.sensor_port && !l.sensor_manual && autoSensor(l, false)) n++;
+    return n;
+  }
   // Warning when the monitor port's active sensor differs from the one wired to the layer's source. `livePorts` = /live `ports`.
   function sensorWarning(layer, livePorts) {
     const m = sensorFor(layer.port);
@@ -412,5 +418,5 @@
     return rows.filter((r, i) => i % step === 0 || r.flag);
   }
 
-  root.VTEThick = {SOURCE_SENSOR, sensorFor, autoSensor, sensorWarning, sharedSensorNote, analyze, rowAt, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, series, watch, stop, refresh, drawChart, chartTitle, fmtNum};
+  root.VTEThick = {SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, rowAt, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, series, watch, stop, refresh, drawChart, chartTitle, fmtNum};
 })(typeof globalThis !== "undefined" ? globalThis : this);
