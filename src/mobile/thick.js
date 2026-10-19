@@ -248,7 +248,7 @@
       // legend (top-left inside the panel)
       if (multi ? k === 0 : (p.dots || p.slope)) {
         g.font = "10.5px sans-serif";
-        const items = multi ? SER.map(s => ["line", s.name, s.color]) : p.dots ? (dots.length ? [["dot", "RS232 원값"], ["line", "기울기(10–60초)"]] : [["line", "기울기(10–60초)"]]) : [["line", "두께 (5초 중앙값)"]];
+        const items = multi ? SER.map(s => ["line", s.name, s.color]) : p.dots ? (dots.length ? [["dot", "RS232 원값"], ["line", "기울기"]] : [["line", "기울기"]]) : [["line", "두께 (5초 중앙값)"]];
         const lum = (fg.match(/[\d.]+/g) || [0, 0, 0]).slice(0, 3).reduce((a, v, n) => a + v * [.2126, .7152, .0722][n], 0);
         const legendBg = lum > 128 ? "rgba(24,24,24,.82)" : "rgba(255,255,255,.85)";  // chart text light => dark theme
         let lx = left + 6;
@@ -497,7 +497,7 @@
       else if (l.heat === "1") warn(`열 영향 의심: 끝난 뒤 ${l.heat_delta} nm 감소`);
       else if (l.heat === "0") notes.push("끝난 뒤 두께 변화 없음");
     } else if (l.started_ms) {
-      if (l.start_pending) notes.push("시작값 측정 중 (리셋 후 10초)");
+      if (l.start_pending) notes.push("시작값 측정 중 (Zero 후 약 3초)");
       notes.push(l.det_ms ? `증착 시작 ${hms(l.det_ms)} · P ${l.det_power || "–"} · T ${l.det_temp || "–"}` : "증착 시작 대기 (rate 0.1 Å/s 이상 10초)");
     }
     const flags = rows.filter(r => r.flag && (!l.started_ms || r.ts * 1000 >= l.started_ms) && (!l.ended_ms || r.ts * 1000 <= l.ended_ms));
