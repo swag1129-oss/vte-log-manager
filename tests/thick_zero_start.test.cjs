@@ -1,0 +1,14 @@
+const assert = require("assert/strict");
+global.localStorage = {getItem: () => null};
+const T0 = require("../src/mobile/thick.js"); const T = global.VTEThick || T0;
+const rows = [{ts: 1000, thk_med: 13.9}, {ts: 1010, thk_med: 13.9, flag: "start"}, {ts: 1010.5, thk_med: 0}, {ts: 1020, thk_med: 0.4, rate_fit: 0.2}];
+assert.equal(T.zeroEvent(rows, 1010000), true);
+assert.equal(T.zeroEvent(rows, 1012000), true, "manual start just after Zero");
+assert.equal(T.zeroEvent(rows, 1100000), false);
+let zeroed = 0;
+const ctx = {layers: () => [], set() {}, zeroTarget() { zeroed++; }};
+const out = T.analyze({sensor_port: "A", started_ms: 1010000, start_pending: "1", start_thk: "13.9", monitor: "10"}, 0, rows, 1030000, ctx);
+assert.equal(out.patch.start_thk, "0");
+assert.equal(out.patch.start_zero, "1");
+assert.equal(zeroed, 1);
+console.log("thick zero start ok");

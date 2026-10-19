@@ -287,6 +287,11 @@
     for (const r of rows) if (r.ts >= t - 1 && r.ts <= t + maxLagMs / 1000 && num(r[field]) !== null) { best = r; break; }
     return best;
   }
+  // Instrument Start/Zero (flag start|reset) within 5 s of the layer start: the monitor was zeroed, so the layer's start thickness is 0 (the event row itself still carries the pre-Zero median).
+  function zeroEvent(rows, startMs) {
+    const t = startMs / 1000;
+    return rows.some(r => (r.flag === "start" || r.flag === "reset") && Math.abs(r.ts - t) <= 5);
+  }
   // Instrument Start (flag "start") on this layer's port that no layer has used yet; null if a layer on the port is already running.
   function findAutoStart(l, layers, rows, now) {
     if (!l || l.started_ms || !l.sensor_port) return null;
@@ -313,9 +318,14 @@
     const out = {};
     const patch = {};
     const startMs = l.started_ms, endMs = l.ended_ms;
+    if (startMs && !endMs && !l.start_zero && zeroEvent(rows, startMs)) {
+      patch.start_zero = "1";
+      if (num(l.start_thk) !== 0) patch.start_thk = "0";
+      if (l.sensor_port && ctx.zeroTarget) ctx.zeroTarget(i);
+    }
     if (startMs && (l.start_pending || !l.start_thk)) {
       const t = rowAt(rows, startMs, "thk_med"), r = rowAt(rows, startMs, "rate_fit", 120000);
-      if (t && !l.start_thk) patch.start_thk = fmtNum(t.thk_med, 2);
+      if (t && !l.start_thk && !patch.start_thk) patch.start_thk = fmtNum(zeroEvent(rows, startMs) ? 0 : t.thk_med, 2);
       if (r && !l.start_rate) patch.start_rate = fmtNum(r.rate_fit, 3);
       const need = [!(l.start_thk || patch.start_thk), !(l.start_rate || patch.start_rate)];
       if (!need[0] && (!need[1] || now - startMs > 120000)) patch.start_pending = "";
@@ -521,14 +531,15 @@
   function updateLive(box, l, rows, running, out, now) {
     if (!box) return;
     const set = (k, v) => { const el = box.querySelector(`[data-live="${k}"]`); if (el && el.textContent !== v) el.textContent = v; };
-    const {rate, layerThk, notes} = liveParts(l, rows, running, out);
+    const {rate, notes, layerThk: rawThk} = liveParts(l, rows, running, out);
+    const layerThk = rawThk !== null && rawThk < 0 ? null : rawThk;
     set("rate", rate === null ? "측정 중" : fmtNum(rate, 2));
     set("thk", layerThk === null ? (l.started_ms && !l.start_thk ? "측정 중" : "–") : fmtNum(layerThk, 2));
     let eta = "–";
     const target = num(l.monitor);
     if (running && layerThk !== null && target !== null) {
       if (layerThk >= target) eta = "도달";
-      else if (rate && rate > 0.02) eta = mmss((target - layerThk) * 10 / rate);
+      else if (rate && rate > 0.02 && (target - layerThk) > 0) { const sec = (target - layerThk) * 10 / rate; if (Number.isFinite(sec) && sec >= 0) eta = mmss(sec); }
     }
     set("eta", eta);
     set("note", notes.join(" · "));
@@ -580,5 +591,5 @@
     return rows.filter((r, i) => i % step === 0 || r.flag);
   }
 
-  root.VTEThick = {findAutoStart, findAutoStop, SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
+  root.VTEThick = {findAutoStart, findAutoStop, zeroEvent, SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
 })(typeof globalThis !== "undefined" ? globalThis : this);

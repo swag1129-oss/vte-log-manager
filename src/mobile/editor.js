@@ -544,11 +544,15 @@
           const l = draft.layers[j];
           Object.assign(l, {started_at: nowText(d), started_ms: evMs, auto_start: "1", auto_skip_ms: evMs, start_pending: "1", end_thk: "", mon_diff: "", avg_rate: "", heat: "", heat_delta: "", det_ms: 0, det_power: "", det_temp: ""});
           if (l.sensor_port) {
-            const t = Thick.rowAt(rows, evMs, "thk_med");
-            if (t && j === i) Thick.setTarget(l.sensor_port, l.material, Core.toFloat(l.monitor), t.thk_med, draft.createdAt);
+            l.start_thk = "0"; l.start_zero = "1";
+            if (j === i) Thick.setTarget(l.sensor_port, l.material, Core.toFloat(l.monitor), 0, draft.createdAt);
           }
         }
         persist(); refreshCard(i); renderStructure(); syncRunningState();
+      },
+      zeroTarget(i) {
+        const l = draft && draft.layers[i];
+        if (l && l.sensor_port) Thick.setTarget(l.sensor_port, l.material, Core.toFloat(l.monitor), 0, draft.createdAt);
       },
       autoEnd(i, evMs) {
         const l = draft && draft.layers[i];
