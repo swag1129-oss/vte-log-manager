@@ -762,7 +762,7 @@
     const end = {ended_at: "", ended_ms: 0, mon_diff: "", avg_rate: "", heat: "", heat_delta: "", end_pending: ""};
     if (auto) Object.assign(end, {end_thk: "", end_rate: "", end_power: ""});
     if (which === "end") return Object.assign(l, end);
-    Object.assign(l, end, {started_at: "", started_ms: 0, start_pending: "", det_ms: 0, det_power: "", det_temp: ""});
+    Object.assign(l, end, {started_at: "", started_ms: 0, start_pending: "", auto_start: "", det_ms: 0, det_power: "", det_temp: ""});
     if (auto) Object.assign(l, {start_thk: "", start_rate: "", start_power: ""});
     return l;
   }

@@ -106,7 +106,7 @@
     const wanted = opts.panels ? PANELS.filter(p => opts.panels.includes(p.key)) : PANELS.filter(p => rows.some(r => num(r[p.key]) !== null) && !(p.key === "power" && port === "D"));
     const show = wanted.length ? wanted : PANELS.slice(0, 2);
     const ph = opts.height || 92, titleH = 18, gap = 26, top = titleH;
-    const h = top + show.length * (ph + gap) - gap + 22;
+    const h = top + show.length * (ph + gap) - gap + 22 + 14;
     canvas.width = w * dpr;
     canvas.height = h * dpr;
     canvas.style.height = h + "px";
@@ -211,11 +211,13 @@
       }
       for (const m of marks) {
         if (m.ms < t0 || m.ms > t1) continue;
-        g.strokeStyle = m.flag === "reset" ? "rgba(197,48,48,.8)" : "rgba(214,158,46,.8)";
+        const ev = m.flag === "start" || m.flag === "stop";
+        g.strokeStyle = m.flag === "reset" ? "rgba(197,48,48,.8)" : ev ? "rgba(47,133,90,.95)" : "rgba(214,158,46,.8)";
         g.beginPath();
         g.moveTo(x(m.ms), y0);
-        g.lineTo(x(m.ms), y0 + 6);
+        g.lineTo(x(m.ms), y0 + (ev ? 12 : 6));
         g.stroke();
+        if (ev) { g.fillStyle = "rgba(47,133,90,.95)"; g.font = "9px sans-serif"; g.textAlign = "center"; g.fillText(m.flag === "start" ? "▶" : "■", x(m.ms), y0 + 21); g.textAlign = "left"; g.font = "11px sans-serif"; }
       }
       if (pts.length) {
         g.fillStyle = "rgba(128,128,128,.6)";
@@ -267,6 +269,15 @@
       g.textBaseline = "alphabetic";
       g.lineWidth = 1;
     });
+    g.font = "10px sans-serif"; g.textAlign = "left"; g.textBaseline = "alphabetic";
+    let lx2 = left;
+    for (const [col, txt, dash] of [["rgba(237,137,54,.9)", "시작·끝", 0], ["rgba(47,133,90,.95)", "증착시작", 1], ["rgba(197,48,48,.8)", "리셋", 0], ["rgba(47,133,90,.95)", "▶장비Start ■Stop", 2]]) {
+      g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 1.4; g.setLineDash(dash === 1 ? [3, 2] : []);
+      if (dash !== 2) { g.beginPath(); g.moveTo(lx2, h - 11); g.lineTo(lx2, h - 2); g.stroke(); lx2 += 4; }
+      g.setLineDash([]); g.fillStyle = "rgba(128,128,128,.95)";
+      g.fillText(txt, lx2, h - 3); lx2 += g.measureText(txt).width + 12;
+    }
+    g.fillStyle = fg; g.lineWidth = 1;
   }
 
   // First row at or after `ms` (fallback: last row before it), so start/end values come from the server's clock at the click, not from whenever the app got an answer.
@@ -275,6 +286,16 @@
     let best = null;
     for (const r of rows) if (r.ts >= t - 1 && r.ts <= t + maxLagMs / 1000 && num(r[field]) !== null) { best = r; break; }
     return best;
+  }
+  // Instrument Start (flag "start") on this layer's port that no layer has used yet; null if a layer on the port is already running.
+  function findAutoStart(l, layers, rows, now) {
+    if (!l || l.started_ms || !l.sensor_port) return null;
+    const same = (layers || []).filter(x => x && x.sensor_port === l.sensor_port);
+    if (same.some(x => x.started_ms && !x.ended_ms)) return null;
+    const floor = Math.max(l.auto_skip_ms || 0, ...same.map(x => Math.max(x.started_ms || 0, x.ended_ms || 0)));
+    let best = null;
+    for (const r of rows) if (r.flag === "start" && r.ts * 1000 > floor && r.ts * 1000 <= now + 5000) best = r;
+    return best ? Math.round(best.ts * 1000) : null;
   }
   const mmss = sec => `${Math.floor(sec / 60)}:${String(Math.max(0, Math.round(sec % 60))).padStart(2, "0")}`;
 
@@ -416,6 +437,10 @@
       } finally { hit.busy = false; }
     }
     if (!hit.okAt) { if (label) label.textContent = hit.fails >= 3 ? "서버 연결 안 됨" : "연결 중…"; return null; }
+    if (pre && ctx.autoStart) {
+      const ev = findAutoStart(l, ctx.layers(), hit.rows, now);
+      if (ev) { ctx.autoStart(i, ev, hit.rows); return null; }
+    }
     const {patch, out, merged} = analyze(l, i, hit.rows, now, ctx);
     if (Object.keys(patch).length) ctx.set(i, patch);
     const age = Math.max(0, Math.round((Date.now() - hit.okAt) / 1000));
@@ -543,5 +568,5 @@
     return rows.filter((r, i) => i % step === 0 || r.flag);
   }
 
-  root.VTEThick = {SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
+  root.VTEThick = {findAutoStart, SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
 })(typeof globalThis !== "undefined" ? globalThis : this);

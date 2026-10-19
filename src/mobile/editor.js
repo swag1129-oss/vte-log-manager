@@ -537,6 +537,19 @@
     };
     const thickCtx = {
       layers: () => (draft ? draft.layers : []),
+      autoStart(i, evMs, rows) {
+        if (!draft || !draft.layers[i] || draft.layers[i].started_ms) return;
+        const d = new Date(evMs), blk = blockOf(i);
+        for (const j of blk) {
+          const l = draft.layers[j];
+          Object.assign(l, {started_at: nowText(d), started_ms: evMs, auto_start: "1", auto_skip_ms: evMs, start_pending: "1", end_thk: "", mon_diff: "", avg_rate: "", heat: "", heat_delta: "", det_ms: 0, det_power: "", det_temp: ""});
+          if (l.sensor_port) {
+            const t = Thick.rowAt(rows, evMs, "thk_med");
+            if (t && j === i) Thick.setTarget(l.sensor_port, l.material, Core.toFloat(l.monitor), t.thk_med, draft.createdAt);
+          }
+        }
+        persist(); refreshCard(i); renderStructure(); syncRunningState();
+      },
       set(i, patch) { if (!draft || !draft.layers[i]) return; Object.assign(draft.layers[i], patch); persist(); patchCard(i); }
     };
     const cardHtml = (idx, n) => (draft.layers[idx[0]].codep ? codepCard(idx, n, draft.type === "툴링") : layerCard(draft.layers[idx[0]], idx[0], draft.type === "툴링", n));
@@ -554,7 +567,7 @@
         <div class="head"><b class="toggle" role="button" data-act="toggle" data-i="${i}">${l.collapsed ? "▸" : "▾"} ${n + 1}. ${l.material ? `<span class="mat">${esc(l.material)}</span>` : "재료 선택"}${l.port ? ` <span class="port">${esc(l.port)}</span>` : ""}</b>
           <select class="mask-select" data-i="${i}" data-k="mask" aria-label="마스크">${masks}</select>
           <span class="tools"><button data-act="up" data-i="${i}">↑</button><button data-act="down" data-i="${i}">↓</button><button data-act="remove" data-i="${i}" class="danger">✕</button></span></div>
-        <div class="summary ${elapsed ? "" : "no-elapsed"}"><span class="sum-text">${esc(summary)}</span> <span class="elapsed" data-elapsed="${i}">${elapsed}</span></div>
+        <div class="summary ${elapsed ? "" : "no-elapsed"}"><span class="sum-text">${esc(summary)}</span> <span class="elapsed" data-elapsed="${i}">${elapsed}</span>${l.auto_start && l.started_at && !l.ended_at ? `<button type="button" class="auto-note" data-act="auto-cancel" data-i="${i}">장비 Start로 자동 시작됨 · 탭하면 취소</button>` : ""}</div>
         <div class="body">
           <div class="hero">
             <div class="hero-row">
@@ -606,7 +619,7 @@
         <div class="head"><b class="toggle" role="button" data-act="toggle" data-i="${i}">${l.collapsed ? "▸" : "▾"} ${n + 1}. ${members.map(([, m]) => (m.material ? `<span class="mat">${esc(m.material)}</span>` : "재료?")).join(" : ")}</b>
           <select class="mask-select" data-i="${i}" data-k="mask" aria-label="마스크">${masks}</select>
           <span class="tools"><button data-act="up" data-i="${i}">↑</button><button data-act="down" data-i="${i}">↓</button><button data-act="remove" data-i="${i}" class="danger">✕</button></span></div>
-        <div class="summary ${elapsed ? "" : "no-elapsed"}"><span class="sum-text">${esc(summary)}</span> <span class="elapsed" data-elapsed="${i}">${elapsed}</span></div>
+        <div class="summary ${elapsed ? "" : "no-elapsed"}"><span class="sum-text">${esc(summary)}</span> <span class="elapsed" data-elapsed="${i}">${elapsed}</span>${l.auto_start && l.started_at && !l.ended_at ? `<button type="button" class="auto-note" data-act="auto-cancel" data-i="${i}">장비 Start로 자동 시작됨 · 탭하면 취소</button>` : ""}</div>
         <div class="body">
           <div class="hero">
             <div class="hero-row">
@@ -1071,6 +1084,11 @@
           persist();
           return renderEditor();
         }
+        if (act === "auto-cancel") {
+          blockOf(i).forEach(j => { if (Thick.enabled() && layers[j].sensor_port) Thick.clearTarget(layers[j].sensor_port, layers[j].material); Core.cancelMark(layers[j], "start", Thick.enabled()); });
+          persist(); refreshCard(i); renderStructure(); syncRunningState();
+          return;
+        }
         if (act === "start" || act === "end") {
           const key = act === "start" ? "started_at" : "ended_at";
           const cancel = layers[i][key] && (act === "end" || !layers[i].ended_at);
@@ -1083,6 +1101,7 @@
             return;
           }
           if (layers[i][key] && !confirm(`${act === "start" ? "시작" : "끝"} 시각을 지금으로 바꿀까요?`)) return;
+          if (act === "start") setShared(i, "auto_start", "");
           setShared(i, key, nowText());
           setShared(i, act === "start" ? "started_ms" : "ended_ms", Date.now());
           if (Thick.enabled()) {

@@ -1,0 +1,15 @@
+const assert = require("assert/strict");
+global.localStorage = {getItem: () => null};
+const T0 = require("../src/mobile/thick.js"); const T = global.VTEThick || T0;
+const rows = [{ts: 1000}, {ts: 1010, flag: "reset"}, {ts: 1100, flag: "start"}, {ts: 1200, flag: "stop"}];
+const L = (o = {}) => ({sensor_port: "B", ...o});
+const f = (l, layers, now = 1300000) => T.findAutoStart(l, layers, rows, now);
+let a = L(); assert.equal(f(a, [a]), 1100000);
+assert.equal(f(L({started_ms: 5}), []), null);
+a = L(); assert.equal(f(a, [a, L({started_ms: 900000})]), null, "running layer on same port blocks");
+a = L(); assert.equal(f(a, [a, L({started_ms: 900000, ended_ms: 1100000})]), null, "event already used by an earlier layer");
+a = L({auto_skip_ms: 1100000}); assert.equal(f(a, [a]), null, "cancelled auto start is not retried");
+a = L(); assert.equal(f(a, [a, L({started_ms: 900000, ended_ms: 1000000})]), 1100000);
+a = {sensor_port: "A"}; assert.equal(f(a, [a, L({started_ms: 900000})]), 1100000, "other port unaffected");
+assert.equal(T.findAutoStart(L(), [], [{ts: 1010, flag: "reset"}], 1300000), null, "reset alone never starts");
+console.log("thick autostart ok");
