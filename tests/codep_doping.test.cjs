@@ -1,0 +1,14 @@
+const assert = require("assert/strict");
+global.localStorage = {getItem: () => null};
+const Th = require("../src/mobile/thick.js") && global.VTEThick;
+const ms = [{material: "CBP", port: "O-2", sensor_port: "B", ratio: "0.403602", vol: "93", dThk: 92.3, rate: 1.2}, {material: "Ir(ppy)3", port: "O-4", sensor_port: "C", ratio: "0.138", vol: "7", dThk: 19.35, rate: 0.25}];
+let d = Th.codepDoping(ms);
+assert.ok(Math.abs(d.cum[1] - 6.69) < 0.01);
+assert.equal(d.host, 0);
+assert.ok(Math.abs(d.inst[1] - 8.47) < 0.01);
+assert.match(Th.dopingTexts(ms, d).cum, /Ir\(ppy\)3 누적 6\.7% \(목표 7%\)/);
+d = Th.codepDoping([{...ms[0], port: "O-1"}, {...ms[1], port: "O-2", sensor_port: "B"}]);
+assert.ok(d.shared && d.cum === null);
+d = Th.codepDoping([{...ms[0], ratio: ""}, ms[1]]);
+assert.ok(d.assumed);
+console.log("codep doping ok");

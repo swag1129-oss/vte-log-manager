@@ -163,6 +163,14 @@
       });
     }
 
+    // Co-dep tag per layer of orderedLayers(log): {codep, vol} (empty strings for ordinary layers).
+    function codepInfo(log) {
+      const rows = rowsByPath.get(log.realPath || log.relPath) || [];
+      return orderedLayers(log).map(l => {
+        const co = /^co-dep\s+(\S+)\s+([\d.]+)/.exec(String((rows[l.sequence] || [])[Core.CODEP_COL] ?? ""));
+        return {codep: co ? co[1] : "", vol: co ? co[2] : ""};
+      });
+    }
     const rowsOf = realPath => rowsByPath.get(realPath) || null;
     const extraOf = realPath => extraByPath.get(realPath);
     const setExtra = (realPath, extra) => extraByPath.set(realPath, extra);
@@ -170,7 +178,7 @@
       const sheet = (extraByPath.get(realPath) || []).find(s => s.name === Core.THICK_SHEET);
       return sheet ? Core.thickPoints(sheet.aoa) : new Map();
     };
-    return {logs, presets, rowsOf, extraOf, setExtra, thickOf, materials, filesByMaterial, parseLog, orderedLayers, sourceHistory, startConditions, searchLogs, measurements, calibrationHistory, latestCalibration, comboOptions};
+    return {logs, presets, rowsOf, extraOf, setExtra, thickOf, codepInfo, materials, filesByMaterial, parseLog, orderedLayers, sourceHistory, startConditions, searchLogs, measurements, calibrationHistory, latestCalibration, comboOptions};
   }
 
   return {createModel};

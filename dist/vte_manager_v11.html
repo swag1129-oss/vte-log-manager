@@ -1086,7 +1086,7 @@
   const THICK_KEY = "ThickSensors";
   const THICK_SHEET = "ThickMon";
   // meta short key -> draft layer key
-  const THICK_FIELDS = {s: "sensor_port", a: "start_thk", b: "end_thk", d: "mon_diff", r: "avg_rate", dp: "det_power", dt: "det_temp", h: "heat", hd: "heat_delta"};
+  const THICK_FIELDS = {s: "sensor_port", a: "start_thk", b: "end_thk", d: "mon_diff", r: "avg_rate", dp: "det_power", dt: "det_temp", h: "heat", hd: "heat_delta", cv: "codep_cv"};
   function thickToMeta(layers) {
     const items = [];
     (layers || []).forEach((l, i) => {
@@ -1148,7 +1148,7 @@
     return {delta, suspect: delta >= drop};
   }
   const SUMMARY_HEAD = ["Layer", "Material", "Source", "Sensor", "Start", "End", "Start thk (nm)", "End thk (nm)", "Monitor thk (nm)", "Mean rate (A/s)", "End rate (A/s)",
-    "Deposition start", "Start power", "Start temp", "Heat check", "Heat drop (nm)", "Start epoch (ms)", "End epoch (ms)"];
+    "Deposition start", "Start power", "Start temp", "Heat check", "Heat drop (nm)", "Start epoch (ms)", "End epoch (ms)", "Codep cum vol% (real)"];
   const SERIES_HEAD = ["Layer", "Sensor", "Time", "Epoch (s)", "Thickness median 5s (nm)", "Rate fit 10s (A/s)", "Raw RS232 rate (A/s, untrusted)", "Power (%)", "Flag"];
   const blankRow = r => !r || r.every(c => c === null || c === undefined || c === "");
   // Existing sheet -> {summary, series} without header rows. Anything unrecognised returns null so the caller keeps the sheet untouched.
@@ -1163,7 +1163,7 @@
   function thickSummaryRow(l, i) {
     return [i + 1, l.material || "", l.port || "", l.sensor_port, l.started_at || "", l.ended_at || "", l.start_thk || "", l.end_thk || "", l.mon_diff || "", l.avg_rate || "",
       l.end_rate || "", l.det_ms ? new Date(l.det_ms).toTimeString().slice(0, 8) : "", l.det_power || "", l.det_temp || "",
-      l.heat === "1" ? "suspect" : l.heat === "0" ? "ok" : "", l.heat_delta || "", l.started_ms || "", l.ended_ms || ""];
+      l.heat === "1" ? "suspect" : l.heat === "0" ? "ok" : "", l.heat_delta || "", l.started_ms || "", l.ended_ms || "", l.codep_cv || ""];
   }
   function thickSeriesRows(l, i, rows) {
     const d = l.sensor_port === "D";
@@ -1234,7 +1234,7 @@
     const sheets = old.filter(s => s.name !== THICK_SHEET).map(s => ({sheetTitle: s.name, aoa: s.aoa}));
     const oldThick = old.find(s => s.name === THICK_SHEET);
     if (oldThick || summary.length) {
-      sheets.push({sheetTitle: THICK_SHEET, aoa: thickSheetMerge(oldThick ? oldThick.aoa : null, summary, series), cols: [7, 14, 8, 8, 17, 17, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 14, 14]});
+      sheets.push({sheetTitle: THICK_SHEET, aoa: thickSheetMerge(oldThick ? oldThick.aoa : null, summary, series), cols: [7, 14, 8, 8, 17, 17, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 14, 14, 14]});
     }
     return sheets;
   }

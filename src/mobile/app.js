@@ -171,6 +171,33 @@
     }
     if (app.model.extraOf(log.realPath) !== undefined) refreshThickIfIncomplete(log, thick);
     const kv = (label, value) => value === "" || value === null || value === undefined ? "" : `<div><span>${label}</span><span>${esc(value)}</span></div>`;
+    // Consecutive layers of one co-dep group share a single chart + doping readout, shown under the group's first layer.
+    const coGroups = new Map();
+    const coInfo = app.model.codepInfo(log);
+    layers.forEach((l, i) => {
+      if (!coInfo[i].codep) return;
+      const prev = coInfo[i - 1];
+      if (prev && prev.codep === coInfo[i].codep) coGroups.get([...coGroups.keys()].pop()).push(i + 1);
+      else coGroups.set(i, [i + 1]);
+    });
+    const coMember = new Set([...coGroups.values()].filter(g => g.length > 1).flat());
+    const coHtml = i => {
+      const g = coGroups.get(i);
+      if (!g || g.length < 2) return "";
+      const hasData = g.some(n => thick.get(n)?.points.length);
+      if (!hasData) return "";
+      const ms = g.map(n => {
+        const t = thick.get(n) || {points: []}, sum = t.sum || [], l = layers[n - 1];
+        const pts = t.points.filter(p => p.thk_med !== null);
+        const d = Number(sum[8]);
+        return {material: l.material, port: l.port, sensor_port: sum[3] || (pts[0] && pts[0].sensor) || "", ratio: l.ratio, vol: coInfo[n - 1].vol, dThk: sum[8] !== "" && sum[8] !== undefined && Number.isFinite(d) ? d : null, rec: sum[18]};
+      });
+      const d = VTEThick.codepDoping(ms);
+      const rec = ms.map(m => Number(m.rec));
+      if (!d.shared && rec.every(v => Number.isFinite(v) && v > 0)) { d.cum = rec; d.assumed = false; }
+      const tx = VTEThick.dopingTexts(ms, d);
+      return `<div class="co-dope">${esc(tx.cum)}</div><canvas class="thick-chart" data-logco="${g.join(",")}"></canvas>`;
+    };
     $("#logDetail").innerHTML = `
       <div class="card">
         <div class="meta"><span>${esc(displayDate(log.dateStr))}</span> <span class="badge ${log.type === "툴링" ? "tooling" : ""}">${esc(log.type)}</span></div>
@@ -197,7 +224,7 @@
             ${kv("TF", fmt(l.tooling_factor))}
           </div>
           ${thickSummary(thick.get(i + 1)?.sum)}
-          ${thick.get(i + 1)?.points.length ? `<canvas class="thick-chart" data-logchart="${i + 1}"></canvas>` : ""}
+          ${coGroups.has(i) && coGroups.get(i).length > 1 ? coHtml(i) : coMember.has(i + 1) ? "" : thick.get(i + 1)?.points.length ? `<canvas class="thick-chart" data-logchart="${i + 1}"></canvas>` : ""}
           ${l.notes ? `<div class="notes">${esc(l.notes)}</div>` : ""}
         </div>`).join("") || `<p class="hint">레이어 기록이 없어요.</p>`}
       <p class="hint">${esc(log.realPath || log.relPath)}</p>`;
@@ -207,6 +234,16 @@
     renderLogStack(layers, VTECore.sampleVariants(layers, holders, "").variants, 1);
     $("#logDetail").dataset.path = log.realPath;
     show("log-detail");
+    for (const canvas of $$("#logDetail canvas[data-logco]")) {
+      try {
+        const nos = canvas.dataset.logco.split(",").map(Number);
+        const series = nos.map((n, k) => ({name: `${layers[n - 1].material} · ${(thick.get(n)?.sum || [])[3] || ""}`, color: VTEThick.MEMBER_COLORS[k % 3], rows: (thick.get(n)?.points || []).slice().sort((a, b) => a.ts - b.ts)})).filter(s => s.rows.length);
+        const all = series.flatMap(s => s.rows.map(r => r.ts));
+        const t0 = Math.min(...all) * 1000, t1 = Math.max(...all) * 1000;
+        const sum = thick.get(nos[0]).sum || [];
+        VTEThick.drawChart(canvas, [], t0, Math.max(t1, t0 + 1000), Number(sum[16]) || 0, Number(sum[17]) || 0, "", {series, panels: ["thk_med", "rate_fit"], height: 92, title: nos.map(n => layers[n - 1].material).join(":")});
+      } catch (e) { console.error("thick chart", e); }
+    }
     for (const canvas of $$("#logDetail canvas[data-logchart]")) {
       const t = thick.get(Number(canvas.dataset.logchart));
       try {

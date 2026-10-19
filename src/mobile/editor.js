@@ -488,7 +488,7 @@
     }
     $("#editorSaved").addEventListener("click", () => showSaved(""));
     const thickSelect = (l, i) => !Thick.enabled() ? "" : `<div class="thick-row"><label>두께 센서<select data-i="${i}" data-k="sensor_port">${["", ...Thick.SENSORS].map(p => `<option ${p === (l.sensor_port || "") ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>${l.sensor_port ? '<span class="thick-status" data-thickstatus data-i="${i}"></span>' : ""}<div class="thick-warn" data-thickwarn="${blockOf(i).join(",")}"></div></div>`;
-    const thickExtra = (l, i) => !Thick.enabled() || !l.sensor_port ? "" : `${measureRow(l, i, "thk")}
+    const thickExtra = (l, i, merged = false) => !Thick.enabled() || !l.sensor_port ? "" : merged ? measureRow(l, i, "thk") : `${measureRow(l, i, "thk")}
       <div class="thick-box" data-thickbox data-i="${i}">
         <div class="thick-live">
           <div><b data-live="rate">–</b><small>지금 Å/s</small></div>
@@ -498,6 +498,16 @@
         <div class="thick-note" data-live="note"></div>
         <canvas class="thick-chart" data-thickchart data-i="${i}"></canvas>
       </div>`;
+    const codepChart = members => {
+      const ids = members.filter(([, m]) => m.sensor_port).map(([j]) => j);
+      return !Thick.enabled() || !ids.length ? "" : `<div class="thick-box codep-box" data-thickbox>
+        <div class="co-rates" data-co="rates"></div>
+        <div class="co-dope" data-co="dope"></div>
+        <div class="co-inst" data-co="inst"></div>
+        <div class="thick-note" data-co="note"></div>
+        <canvas class="thick-chart" data-thickco="${ids.join(",")}"></canvas>
+      </div>`;
+    };
     const thickCtx = {
       layers: () => (draft ? draft.layers : []),
       set(i, patch) { if (!draft || !draft.layers[i]) return; Object.assign(draft.layers[i], patch); persist(); patchCard(i); }
@@ -619,8 +629,9 @@
             <div class="codep-sub"><span class="mat">${esc(m.material || "재료?")}</span> <span class="port">${esc(m.port || "")}</span></div>
             ${thickSelect(m, j)}
             ${["rate", "power", "temp"].map(k => measureRow(m, j, k)).join("")}
-            ${thickExtra(m, j)}
+            ${thickExtra(m, j, true)}
             ${isTooling ? `<div class="grid2 tight" style="margin-top:6px"><label>실측 두께(nm)<input data-i="${j}" data-k="measured_actual" inputmode="decimal" value="${esc(m.measured_actual || "")}"></label><span></span></div>` : ""}`).join("")}
+            ${codepChart(members)}
             <div class="calc-hint" data-dope="${i}">${esc(dopingText(idx))}</div>
           </div>
           <label style="margin-top:6px">메모<input data-i="${i}" data-k="notes" value="${esc(l.notes || "")}"></label>

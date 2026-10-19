@@ -104,7 +104,8 @@
     const cs = getComputedStyle(canvas), fg = cs.color || "#444";
     const grid = "rgba(128,128,128,.32)", gridMinor = "rgba(128,128,128,.14)", axis = "rgba(128,128,128,.9)";
     const left = 46, right = w - 8, x = ms => left + (ms - t0) / Math.max(1, t1 - t0) * (right - left);
-    const marks = rows.filter(r => r.flag).map(r => ({ms: r.ts * 1000, flag: r.flag}));
+    const SER = opts.series || [{rows, color: null, name: ""}], multi = Boolean(opts.series);
+    const marks = (multi ? SER.flatMap(s => s.rows) : rows).filter(r => r.flag).map(r => ({ms: r.ts * 1000, flag: r.flag}));
     const spanMin = (t1 - t0) / 60000;
     const stepMin = MIN_STEPS.find(s => spanMin / s <= Math.max(2, Math.floor((right - left) / 50))) || 360;
     const xticks = [];
@@ -119,8 +120,9 @@
     g.font = "11px sans-serif";
     show.forEach((p, k) => {
       const y0 = top + k * (ph + gap);
-      const pts = rows.map(r => [r.ts * 1000, num(r[p.key])]).filter(q => q[1] !== null && q[0] >= t0);
-      const dots = p.dots && port !== "D" ? rows.map(r => [r.ts * 1000, num(r[p.dots])]).filter(q => q[1] !== null && q[0] >= t0) : [];
+      const sers = SER.map(s => ({...s, pts: s.rows.map(r => [r.ts * 1000, num(r[p.key])]).filter(q => q[1] !== null && q[0] >= t0)}));
+      const pts = multi ? sers.flatMap(s => s.pts) : sers[0].pts;
+      const dots = !multi && p.dots && port !== "D" ? rows.map(r => [r.ts * 1000, num(r[p.dots])]).filter(q => q[1] !== null && q[0] >= t0) : [];
       let lo = pts.length ? Math.min(...pts.map(q => q[1])) : 0, hi = pts.length ? Math.max(...pts.map(q => q[1])) : 1;
       if (hi - lo < 1e-9) { lo -= 0.5; hi += 0.5; }
       if (lo > 0 && lo < hi * p.zero) lo = 0;
@@ -206,13 +208,15 @@
       if (pts.length) {
         g.fillStyle = "rgba(128,128,128,.6)";
         for (const q of dots) if (q[1] >= lo && q[1] <= hi) g.fillRect(x(q[0]) - 1, y(q[1]) - 1, 2, 2);
-        g.strokeStyle = p.color;
-        g.lineWidth = 1.6;
-        g.lineJoin = "round";
-        g.beginPath();
-        pts.forEach((q, n) => { if (n) g.lineTo(x(q[0]), y(q[1])); else g.moveTo(x(q[0]), y(q[1])); });
-        g.stroke();
-        if (p.slope) {
+        for (const s of sers) {
+          g.strokeStyle = s.color || p.color;
+          g.lineWidth = 1.6;
+          g.lineJoin = "round";
+          g.beginPath();
+          s.pts.forEach((q, n) => { if (n) g.lineTo(x(q[0]), y(q[1])); else g.moveTo(x(q[0]), y(q[1])); });
+          g.stroke();
+        }
+        if (p.slope && !multi) {
           // tangent over the server's adaptive window (10-60 s): slope = rate_fit (A/s) = rate/10 nm/s
           const last = rows[rows.length - 1], rf = last && num(last.rate_fit), lv = last && num(last.thk_med);
           const win = num(last && last.rate_win) || 10;
@@ -228,20 +232,20 @@
       }
       g.restore();
       // legend (top-left inside the panel)
-      if (p.dots || p.slope) {
+      if (multi ? k === 0 : (p.dots || p.slope)) {
         g.font = "10.5px sans-serif";
-        const items = p.dots ? (dots.length ? [["dot", "RS232 원값"], ["line", "기울기(10–60초)"]] : [["line", "기울기(10–60초)"]]) : [["line", "두께 (5초 중앙값)"]];
+        const items = multi ? SER.map(s => ["line", s.name, s.color]) : p.dots ? (dots.length ? [["dot", "RS232 원값"], ["line", "기울기(10–60초)"]] : [["line", "기울기(10–60초)"]]) : [["line", "두께 (5초 중앙값)"]];
         const lum = (fg.match(/[\d.]+/g) || [0, 0, 0]).slice(0, 3).reduce((a, v, n) => a + v * [.2126, .7152, .0722][n], 0);
         const legendBg = lum > 128 ? "rgba(24,24,24,.82)" : "rgba(255,255,255,.85)";  // chart text light => dark theme
         let lx = left + 6;
         g.textAlign = "left";
         g.textBaseline = "middle";
-        for (const [kind, text] of items) {
+        for (const [kind, text, col] of items) {
           const tw = g.measureText(text).width;
           g.fillStyle = legendBg;
           g.fillRect(lx - 2, y0 + 3, tw + 22, 14);
           if (kind === "dot") { g.fillStyle = "rgba(110,110,110,.9)"; g.beginPath(); g.arc(lx + 4, y0 + 10, 2.2, 0, 7); g.fill(); }
-          else { g.strokeStyle = kind === "tan" ? "#e53e3e" : p.color; g.lineWidth = kind === "tan" ? 2.2 : 1.6; g.beginPath(); g.moveTo(lx, y0 + 10); g.lineTo(lx + 9, y0 + 10); g.stroke(); }
+          else { g.strokeStyle = kind === "tan" ? "#e53e3e" : col || p.color; g.lineWidth = kind === "tan" ? 2.2 : 1.6; g.beginPath(); g.moveTo(lx, y0 + 10); g.lineTo(lx + 9, y0 + 10); g.stroke(); }
           g.fillStyle = fg;
           g.fillText(text, lx + 12, y0 + 10);
           lx += tw + 28;
@@ -303,6 +307,37 @@
     return {patch, out, merged: {...merged, ...patch}};
   }
 
+  const MEMBER_COLORS = ["#2b6cb0", "#dd6b20", "#2f855a"];
+  const nf = v => (v === null || v === undefined || String(v).trim() === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+  // Co-dep doping ratio. members: [{port, sensor_port, ratio, vol, dThk (monitor nm gained), rate (monitor A/s)}].
+  // Real thickness = monitor value x ratio (actual/monitor); cum = share of each member in the summed real thickness gained since the start, inst = same with current rates.
+  // Two sources on one sensor read a summed thickness, so no ratio can be computed (shared).
+  function codepDoping(members) {
+    const keys = members.map(m => { const s = sensorFor(m.port); return s ? s.port + s.sensor : "p" + (m.sensor_port || ""); });
+    const shared = new Set(keys).size < keys.length;
+    const rat = m => { const r = nf(m.ratio); return r !== null && r > 0 ? r : null; };
+    const assumed = members.some(m => rat(m) === null);
+    const share = f => {
+      const a = members.map(m => { const v = nf(m[f]); return v === null ? null : v * (rat(m) ?? 1); });
+      if (a.some(v => v === null || v < 0)) return null;
+      const sum = a.reduce((x, y) => x + y, 0);
+      return sum > 0 ? a.map(v => v / sum * 100) : null;
+    };
+    const target = members.map(m => nf(m.vol));
+    const base = target.every(v => v !== null) ? target : null;
+    const cum = shared ? null : share("dThk"), inst = shared ? null : share("rate");
+    const ref = base || cum || inst || members.map(() => 0);
+    const host = ref.indexOf(Math.max(...ref));
+    return {shared, assumed, cum, inst, target: base, host};
+  }
+  const pct = v => (Math.round(v * 10) / 10).toFixed(1);
+  // Short readout lines for the non-host members: "Ir(ppy)3 누적 7.2% (목표 7%)" and "지금 6.8%".
+  function dopingTexts(members, d) {
+    if (d.shared) return {cum: "센서 공유 — 도핑비 계산 불가", inst: ""};
+    const others = members.map((m, k) => k).filter(k => k !== d.host);
+    const line = (arr, word, tgt) => (arr ? others.map(k => `${members[k].material || "?"} ${word} ${pct(arr[k])}%${tgt && d.target ? ` (목표 ${fmtNum(d.target[k], 1)}%)` : ""}`).join(" · ") : "");
+    return {cum: (d.cum ? line(d.cum, "누적", true) : "누적 도핑비 –") + (d.cum && d.assumed ? " · ratio 없음(1 가정)" : ""), inst: d.inst ? line(d.inst, "지금", false) : ""};
+  }
   function chartTitle(port, rows, material) {
     const no = [...rows].reverse().map(r => r.material_no).find(v => v !== null && v !== undefined);
     return `${port}${no !== undefined ? " #" + no : ""}${material ? "/" + material : ""}`;
@@ -323,61 +358,117 @@
     }
     const allLayers = ctx.layers(), nextPre = new Set();
     for (const port of new Set(allLayers.filter(x => x && x.sensor_port && !x.started_ms).map(x => x.sensor_port))) nextPre.add(allLayers.findIndex(x => x && x.sensor_port === port && !x.started_ms));
-    for (const canvas of root.querySelectorAll("canvas[data-thickchart]")) {
+    for (const canvas of root.querySelectorAll("canvas[data-thickchart], canvas[data-thickco]")) {
+      if (canvas.dataset.thickco) { await refreshCodep(canvas, root, allLayers, nextPre, ctx); continue; }
       const i = Number(canvas.dataset.i);
       const l = allLayers[i];
       const box = canvas.closest("[data-thickbox]");
       const label = root.querySelector(`[data-thickstatus][data-i="${i}"]`) || (box && box.querySelector("[data-thickstatus]")) || (box && box.parentElement && box.parentElement.querySelector("[data-thickstatus]")) || canvas.closest("section,article,.card,.layer")?.querySelector("[data-thickstatus]") || null;
-      if (!l || !l.sensor_port) continue;
-      const now = Date.now();
-      const running = l.started_ms && !l.ended_ms;
-      const t0 = l.started_ms ? l.started_ms - 180000 : now - 180000;
-      const t1 = l.ended_ms ? Math.min(now, l.ended_ms + 180000) : now;
-      const settled = l.ended_ms && now > l.ended_ms + 190000;
-      const pre = !l.started_ms;
-      if (pre && !nextPre.has(i)) { if (label) label.textContent = "시작 전"; continue; }
-      const id = pre ? `${l.sensor_port}|pre` : `${l.sensor_port}|${t0}|${l.ended_ms || ""}`;
-      let hit = cache.get(id);
-      if (!hit) { hit = {rows: [], lastTs: 0, okAt: 0, nextAt: 0, fails: 0, busy: false, full: false, done: false}; cache.set(id, hit); }
-      if (!hit.done && !hit.busy && now >= hit.nextAt) {
-        hit.busy = true;
-        try {
-          const rows = hit.full ? await range(l.sensor_port, hit.lastTs * 1000, t1 + 2000) : await range(l.sensor_port, t0, t1 + 2000);
-          if (rows) {
-            if (!hit.full) hit.rows = rows;
-            else { for (const r of rows) if (r.ts > hit.lastTs) hit.rows.push(r); }
-            if (pre) { const cut = (now - 200000) / 1000; if (hit.rows.length && hit.rows[0].ts < cut) hit.rows = hit.rows.filter(r => r.ts >= cut); }
-            if (hit.rows.length) hit.lastTs = hit.rows[hit.rows.length - 1].ts;
-            hit.full = true; hit.fails = 0; hit.okAt = Date.now(); hit.nextAt = hit.okAt + 1800;
-            if (settled) hit.done = true;
-          } else { hit.fails++; hit.nextAt = Date.now() + Math.min(5000, 1000 * hit.fails); }
-        } finally { hit.busy = false; }
-      }
-      if (!hit.okAt) { if (label) label.textContent = hit.fails >= 3 ? "서버 연결 안 됨" : "연결 중…"; continue; }
-      const {patch, out, merged} = analyze(l, i, hit.rows, now, ctx);
-      if (Object.keys(patch).length) ctx.set(i, patch);
-      const age = Math.max(0, Math.round((Date.now() - hit.okAt) / 1000));
-      if (label) {
-        label.textContent = (hit.rows.length ? `${hit.rows.length}점 · ${running ? "실시간" : l.ended_ms ? "구간 기록" : "최근 3분"}` : "데이터 없음") + (hit.done ? "" : ` · 갱신 ${age}초 전`);
-        label.style.color = !hit.done && age > 10 ? "#e8890c" : "";
-        if (!hit.done && (hit.fails >= 3 || age > 15)) label.textContent = "서버 연결 안 됨";
-      }
-      const drawRows = hit.rows.length > 3000 ? hit.rows.filter((r, k) => k % Math.ceil(hit.rows.length / 3000) === 0 || r.flag || k === hit.rows.length - 1) : hit.rows;
-      drawChart(canvas, drawRows, t0, Math.max(t1, t0 + 1000), l.started_ms, l.ended_ms, l.sensor_port, {detMs: merged.det_ms, title: chartTitle(l.sensor_port, hit.rows, l.material)});
-      updateLive(box, merged, hit.rows, running, out, now);
+      const r = await serve(l, i, nextPre, ctx, label);
+      if (!r) continue;
+      drawChart(canvas, thin(r.hit.rows), r.t0, Math.max(r.t1, r.t0 + 1000), l.started_ms, l.ended_ms, l.sensor_port, {detMs: r.merged.det_ms, title: chartTitle(l.sensor_port, r.hit.rows, l.material)});
+      updateLive(box, r.merged, r.hit.rows, r.running, r.out, r.now);
     }
   }
-  function updateLive(box, l, rows, running, out, now) {
+  const thin = rows => (rows.length > 3000 ? rows.filter((r, k) => k % Math.ceil(rows.length / 3000) === 0 || r.flag || k === rows.length - 1) : rows);
+  // Fetches (cached) and analyzes one layer; returns null while there is nothing to show.
+  async function serve(l, i, nextPre, ctx, label) {
+    if (!l || !l.sensor_port) return null;
+    const now = Date.now();
+    const running = l.started_ms && !l.ended_ms;
+    const t0 = l.started_ms ? l.started_ms - 180000 : now - 180000;
+    const t1 = l.ended_ms ? Math.min(now, l.ended_ms + 180000) : now;
+    const settled = l.ended_ms && now > l.ended_ms + 190000;
+    const pre = !l.started_ms;
+    if (pre && !nextPre.has(i)) { if (label) label.textContent = "시작 전"; return null; }
+    const id = pre ? `${l.sensor_port}|pre` : `${l.sensor_port}|${t0}|${l.ended_ms || ""}`;
+    let hit = cache.get(id);
+    if (!hit) { hit = {rows: [], lastTs: 0, okAt: 0, nextAt: 0, fails: 0, busy: false, full: false, done: false}; cache.set(id, hit); }
+    if (!hit.done && !hit.busy && now >= hit.nextAt) {
+      hit.busy = true;
+      try {
+        const rows = hit.full ? await range(l.sensor_port, hit.lastTs * 1000, t1 + 2000) : await range(l.sensor_port, t0, t1 + 2000);
+        if (rows) {
+          if (!hit.full) hit.rows = rows;
+          else { for (const r of rows) if (r.ts > hit.lastTs) hit.rows.push(r); }
+          if (pre) { const cut = (now - 200000) / 1000; if (hit.rows.length && hit.rows[0].ts < cut) hit.rows = hit.rows.filter(r => r.ts >= cut); }
+          if (hit.rows.length) hit.lastTs = hit.rows[hit.rows.length - 1].ts;
+          hit.full = true; hit.fails = 0; hit.okAt = Date.now(); hit.nextAt = hit.okAt + 1800;
+          if (settled) hit.done = true;
+        } else { hit.fails++; hit.nextAt = Date.now() + Math.min(5000, 1000 * hit.fails); }
+      } finally { hit.busy = false; }
+    }
+    if (!hit.okAt) { if (label) label.textContent = hit.fails >= 3 ? "서버 연결 안 됨" : "연결 중…"; return null; }
+    const {patch, out, merged} = analyze(l, i, hit.rows, now, ctx);
+    if (Object.keys(patch).length) ctx.set(i, patch);
+    const age = Math.max(0, Math.round((Date.now() - hit.okAt) / 1000));
+    if (label) {
+      label.textContent = (hit.rows.length ? `${hit.rows.length}점 · ${running ? "실시간" : l.ended_ms ? "구간 기록" : "최근 3분"}` : "데이터 없음") + (hit.done ? "" : ` · 갱신 ${age}초 전`);
+      label.style.color = !hit.done && age > 10 ? "#e8890c" : "";
+      if (!hit.done && (hit.fails >= 3 || age > 15)) label.textContent = "서버 연결 안 됨";
+    }
+    return {hit, t0, t1, running, merged, out, now};
+  }
+  // One chart + one doping readout for a co-deposition block (canvas[data-thickco="i,j,.."]).
+  async function refreshCodep(canvas, root, allLayers, nextPre, ctx) {
+    const idx = canvas.dataset.thickco.split(",").map(Number);
+    const box = canvas.closest("[data-thickbox]");
+    const rs = [];
+    for (const j of idx) rs.push(await serve(allLayers[j], j, nextPre, ctx, root.querySelector(`[data-thickstatus][data-i="${j}"]`)));
+    const ok = rs.map((r, k) => r && {r, l: allLayers[idx[k]], k}).filter(Boolean);
+    if (!ok.length) return;
+    const l0 = allLayers[idx[0]];
+    const t0 = Math.min(...ok.map(o => o.r.t0)), t1 = Math.max(...ok.map(o => o.r.t1));
+    const series = ok.map(o => ({name: `${o.l.material || "?"} · ${o.l.sensor_port}`, color: MEMBER_COLORS[o.k % MEMBER_COLORS.length], rows: thin(o.r.hit.rows)}));
+    drawChart(canvas, [], t0, Math.max(t1, t0 + 1000), l0.started_ms, l0.ended_ms, l0.sensor_port, {series, panels: ["thk_med", "rate_fit"], detMs: ok[0].r.merged.det_ms, title: idx.map(j => allLayers[j].material || "?").join(":")});
+    const parts = idx.map((j, k) => {
+      const r = rs[k];
+      return r ? {...liveParts(r.merged, r.hit.rows, r.running, r.out), l: r.merged} : null;
+    });
     if (!box) return;
-    const set = (k, v) => { const el = box.querySelector(`[data-live="${k}"]`); if (el && el.textContent !== v) el.textContent = v; };
+    const set = (k, v) => { const el = box.querySelector(`[data-co="${k}"]`); if (el && el.textContent !== v) el.textContent = v; };
+    const ms = idx.map((j, k) => ({...allLayers[j], dThk: parts[k] && parts[k].layerThk, rate: parts[k] && parts[k].rate}));
+    set("rates", idx.map((j, k) => `${allLayers[j].material || "?"}: ${parts[k] && parts[k].rate !== null ? fmtNum(parts[k].rate, 2) : "–"}`).join("  ·  ") + " Å/s");
+    const d = codepDoping(ms);
+    const txt = dopingTexts(ms, d);
+    set("dope", txt.cum);
+    set("inst", txt.inst);
+    set("note", parts.flatMap((p, k) => (p ? p.warns.map(w => (idx.length > 1 ? `${allLayers[idx[k]].material}: ` : "") + w) : [])).join(" · "));
+    const done = idx.every(j => allLayers[j].ended_ms) && d.cum && !d.shared && idx.every((j, k) => parts[k] && parts[k].layerThk !== null);
+    if (done) {
+      d.cum.forEach((v, k) => { const cv = fmtNum(v, 2); if (allLayers[idx[k]].codep_cv !== cv) ctx.set(idx[k], {codep_cv: cv}); });
+    }
+  }
+  function liveParts(l, rows, running, out) {
     const last = [...rows].reverse().find(r => num(r.thk_med) !== null) || null;
     const cur = rows[rows.length - 1];
-    const rate = cur && num(cur.rate_fit);
-    set("rate", rate === null || rate === undefined ? "측정 중" : fmtNum(rate, 2));
+    const rate = cur ? num(cur.rate_fit) : null;
     const startThk = num(l.start_thk);
     let layerThk = null;
     if (l.ended_ms && num(l.mon_diff) !== null) layerThk = num(l.mon_diff);
     else if (running && startThk !== null && last) layerThk = num(last.thk_med) - startThk;
+    const notes = [], warns = [];
+    const warn = t => { notes.push(t); warns.push(t); };
+    if (l.ended_ms) {
+      if (l.mon_diff) notes.push(`모니터 ${l.mon_diff} nm · 평균 ${l.avg_rate || "–"} Å/s · 끝 ${l.end_rate || "측정 중"} Å/s`);
+      if (out.heatWait) notes.push(`열 영향 관찰 중 ${mmss(out.heatWait)}`);
+      else if (l.heat === "1") warn(`열 영향 의심: 끝난 뒤 ${l.heat_delta} nm 감소`);
+      else if (l.heat === "0") notes.push("끝난 뒤 두께 변화 없음");
+    } else if (l.started_ms) {
+      if (l.start_pending) notes.push("시작값 측정 중 (리셋 후 10초)");
+      notes.push(l.det_ms ? `증착 시작 ${hms(l.det_ms)} · P ${l.det_power || "–"} · T ${l.det_temp || "–"}` : "증착 시작 대기 (rate 0.1 Å/s 이상 10초)");
+    }
+    const flags = rows.filter(r => r.flag && (!l.started_ms || r.ts * 1000 >= l.started_ms) && (!l.ended_ms || r.ts * 1000 <= l.ended_ms));
+    const resets = flags.filter(r => r.flag === "reset").length, spikes = flags.filter(r => r.flag === "spike").length;
+    if (resets) warn(`층 도중 리셋 ${resets}회 — 두께차 신뢰 불가`);
+    if (spikes) notes.push(`스파이크 ${spikes}점 제외`);
+    return {rate, layerThk, notes, warns};
+  }
+  function updateLive(box, l, rows, running, out, now) {
+    if (!box) return;
+    const set = (k, v) => { const el = box.querySelector(`[data-live="${k}"]`); if (el && el.textContent !== v) el.textContent = v; };
+    const {rate, layerThk, notes} = liveParts(l, rows, running, out);
+    set("rate", rate === null ? "측정 중" : fmtNum(rate, 2));
     set("thk", layerThk === null ? (l.started_ms && !l.start_thk ? "측정 중" : "–") : fmtNum(layerThk, 2));
     let eta = "–";
     const target = num(l.monitor);
@@ -386,20 +477,6 @@
       else if (rate && rate > 0.02) eta = mmss((target - layerThk) * 10 / rate);
     }
     set("eta", eta);
-    const notes = [];
-    if (l.ended_ms) {
-      if (l.mon_diff) notes.push(`모니터 ${l.mon_diff} nm · 평균 ${l.avg_rate || "–"} Å/s · 끝 ${l.end_rate || "측정 중"} Å/s`);
-      if (out.heatWait) notes.push(`열 영향 관찰 중 ${mmss(out.heatWait)}`);
-      else if (l.heat === "1") notes.push(`열 영향 의심: 끝난 뒤 ${l.heat_delta} nm 감소`);
-      else if (l.heat === "0") notes.push("끝난 뒤 두께 변화 없음");
-    } else if (l.started_ms) {
-      if (l.start_pending) notes.push("시작값 측정 중 (리셋 후 10초)");
-      notes.push(l.det_ms ? `증착 시작 ${hms(l.det_ms)} · P ${l.det_power || "–"} · T ${l.det_temp || "–"}` : "증착 시작 대기 (rate 0.1 Å/s 이상 10초)");
-    }
-    const flags = rows.filter(r => r.flag && (!l.started_ms || r.ts * 1000 >= l.started_ms) && (!l.ended_ms || r.ts * 1000 <= l.ended_ms));
-    const resets = flags.filter(r => r.flag === "reset").length, spikes = flags.filter(r => r.flag === "spike").length;
-    if (resets) notes.push(`층 도중 리셋 ${resets}회 — 두께차 신뢰 불가`);
-    if (spikes) notes.push(`스파이크 ${spikes}점 제외`);
     set("note", notes.join(" · "));
   }
   function watch(ctx, active) {
@@ -426,5 +503,5 @@
     return rows.filter((r, i) => i % step === 0 || r.flag);
   }
 
-  root.VTEThick = {SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, rowAt, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, series, watch, stop, refresh, drawChart, chartTitle, fmtNum};
+  root.VTEThick = {SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, series, watch, stop, refresh, drawChart, chartTitle, fmtNum};
 })(typeof globalThis !== "undefined" ? globalThis : this);
