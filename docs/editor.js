@@ -682,12 +682,11 @@
     async function buildExtraSheets(layers, editing) {
       const summary = [];
       const series = [];
+      let seriesFailed = 0;
       if (Thick.enabled()) {
         const items = layers.map((l, i) => ({l, i})).filter(({l}) => l.sensor_port && l.started_ms);
-        // All layers fetched at once with a hard cap: a slow ThickMon server must not stall the save (rows already in the file are kept by the merge).
-        const fetched = await Promise.all(items.map(({l}) => Promise.race([
-          Thick.series(l.sensor_port, l.started_ms - 30000, l.ended_ms ? Math.min(Date.now(), l.ended_ms + 180000) : Date.now()).catch(() => null),
-          new Promise(r => setTimeout(() => r(null), 12000))])));
+        const {rows: fetched, failed} = await Thick.layerSeries(items.map(({l}) => l));
+        if (failed) seriesFailed = failed;
         items.forEach(({l, i}, k) => { summary.push(Core.thickSummaryRow(l, i)); series.push(...Core.thickSeriesRows(l, i, fetched[k])); });
       }
       let base = editing && editing.extra;
@@ -702,6 +701,7 @@
       const sheets = Core.mergeExtraSheets(base, summary, series);
       const lost = Core.thickLoss((base || []).find(s => s.name === Core.THICK_SHEET)?.aoa, (sheets.find(s => s.sheetTitle === Core.THICK_SHEET) || {}).aoa);
       if (lost > 0) throw new Error(`ThickMon 데이터 ${lost}행이 사라질 뻔해서 저장을 막았어요.`);
+      sheets.seriesFailed = seriesFailed;
       return sheets;
     }
     async function uploadDraft(mode = "close") {
@@ -781,9 +781,10 @@
         }
         await loadModel();
         const fileName = saved.relPath.split("/").pop();
-        status(`저장됨: ${fileName}`);
+        const partial = extraSheets.seriesFailed ? ` · 장비 데이터 일부 못 받음(${extraSheets.seriesFailed}층)` : "";
+        status(`저장됨: ${fileName}${partial}`);
         // Staying on the recording screen, nothing else on it changes, so say so where the button is.
-        if (mode !== "close") showSaved(`저장됨 ${nowText().slice(11)} · ${fileName}`);
+        if (mode !== "close") showSaved(`저장됨 ${nowText().slice(11)} · ${fileName}${partial}`);
         const log = app.model.logs.find(l => l.realPath === saved.relPath);
         if (mode === "close" && editing && !inPlace) alert(`새 파일로 저장했어요.\n원래 파일(${editing.relPath.split("/").pop()})은 그대로 있어요.`);
         if (mode !== "close") { renderEditor(); return; }

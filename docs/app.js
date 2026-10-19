@@ -4,7 +4,7 @@
   const CONFIG = {
     appKey: "5rz8t9p1imu4wa9",
     defaultRoot: "/NEXT LAB/Log/A222/VTE log/VTE_MANAGER",
-    version: "2026-10-19-c4303b7b"
+    version: "2026-10-19-4d78c683"
   };
   const LS = {author: "vte.author", root: "vte.root"};
   const {fmt, displayDate, calcRequiredMonitor, calcMonitorRate} = VTECore;

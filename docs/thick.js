@@ -513,6 +513,19 @@
   function stop() { clearInterval(timer); timer = null; }
 
   // Series for the xlsx extra sheet, thinned to at most `max` rows.
+  // One series per started layer over [t0-3min, t1+3min], all in parallel, each retried once and capped at capMs. Returns {rows: [rows|null per item], failed}.
+  async function layerSeries(items, capMs = 15000) {
+    const one = async l => {
+      const to = l.ended_ms ? Math.min(Date.now(), l.ended_ms + 180000) : Date.now();
+      for (let a = 0; a < 2; a++) {
+        const r = await Promise.race([series(l.sensor_port, l.started_ms - 180000, to).catch(() => null), new Promise(res => setTimeout(() => res(null), capMs))]);
+        if (r) return r;
+      }
+      return null;
+    };
+    const rows = await Promise.all(items.map(one));
+    return {rows, failed: rows.filter(r => !r).length};
+  }
   async function series(port, fromMs, toMs, max = 600) {
     const rows = await range(port, fromMs, toMs);
     if (!rows) return null;
@@ -520,5 +533,5 @@
     return rows.filter((r, i) => i % step === 0 || r.flag);
   }
 
-  root.VTEThick = {SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, watch, stop, refresh, drawChart, chartTitle, fmtNum};
+  root.VTEThick = {SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
 })(typeof globalThis !== "undefined" ? globalThis : this);
