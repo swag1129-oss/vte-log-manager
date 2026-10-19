@@ -668,7 +668,19 @@
           series.push(...Core.thickSeriesRows(l, i, rows));
         }
       }
-      return Core.mergeExtraSheets(editing && editing.extra, summary, series);
+      let base = editing && editing.extra;
+      // The cached copy can be older than the file (another device, an earlier save in this session): union it with the file's current sheets.
+      if (editing && editing.inPlaceCheck && app.client && navigator.onLine) {
+        try {
+          const {data} = await app.client.download(editing.realPath);
+          const fresh = VTEStore.readWorkbook(XLSX, data).extra;
+          base = Core.unionExtra(base, fresh);
+        } catch (e) { /* offline or deleted: fall back to the cached copy */ }
+      }
+      const sheets = Core.mergeExtraSheets(base, summary, series);
+      const lost = Core.thickLoss((base || []).find(s => s.name === Core.THICK_SHEET)?.aoa, (sheets.find(s => s.sheetTitle === Core.THICK_SHEET) || {}).aoa);
+      if (lost > 0) throw new Error(`ThickMon 데이터 ${lost}행이 사라질 뻔해서 저장을 막았어요.`);
+      return sheets;
     }
     async function uploadDraft(mode = "close") {
       const d = draft;
@@ -693,7 +705,8 @@
       layers.forEach(l => { if (l.det_ms && !l.det_power) l.det_power = String(l.start_power || ""); if (l.det_ms && !l.det_temp) l.det_temp = String(l.start_temp || ""); });
       Object.assign(meta, Core.maskHoldersToMeta(d.maskHolders), Core.samplesToMeta(layers, d.maskHolders), Core.thickToMeta(layers));
       const sheet = Core.buildProcessLogSheet({isTooling, layers: Core.draftLayersToEditorRows(layers), memo: d.memo, meta, timeTag: tag});
-      const extraSheets = await buildExtraSheets(layers, editing);
+      let extraSheets;
+      try { extraSheets = await buildExtraSheets(layers, editing); } catch (e) { return err(e.message); }
       const newPath = `${savePrefix()}${Core.processLogFolder(isTooling, d.date).join("/")}/${Core.pathSafe(sheet.fileName)}`;
       // Edit in place only in the matching mode (test file in test mode, real file otherwise) and while the file still exists;
       // a file deleted since opening is saved as a new file instead of being silently recreated.
@@ -802,7 +815,7 @@
       if (!layers.length && !confirm("이 파일은 매니저 양식이 아니라 레이어를 불러오지 못했어요. 빈 로그로 수정할까요?")) return;
       await startDraft({
         type: log.type, date: log.dateStr || Core.currentYYMMDD(), layers, preset: meta.Preset || "", createdAt: meta["Created At"] || "",
-        editing: {realPath: log.realPath, relPath: log.relPath, test: log.test, meta, extra: extra || [], lossy, origType: log.type, origDate: log.dateStr}
+        editing: {inPlaceCheck: true, realPath: log.realPath, relPath: log.relPath, test: log.test, meta, extra: extra || [], lossy, origType: log.type, origDate: log.dateStr}
       });
       ctx.setTab("record");
     }

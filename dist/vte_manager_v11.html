@@ -1207,6 +1207,27 @@
       return true;
     }
   }
+  // Union two copies of the extra sheets (e.g. the cached copy and the file's current copy); ThickMon rows from either survive.
+  function unionExtra(a, b) {
+    const out = (a || []).map(s => ({...s}));
+    for (const s of b || []) {
+      const i = out.findIndex(o => o.name === s.name);
+      if (i < 0) { out.push({...s}); continue; }
+      if (s.name !== THICK_SHEET) continue;
+      const p = thickSheetParse(s.aoa);
+      if (p) out[i] = {...out[i], aoa: thickSheetMerge(out[i].aoa, p.summary, p.series)};
+    }
+    return out;
+  }
+  // Old ThickMon series points (sensor + second) that the new sheet no longer has. Anything above 0 means a save would lose data.
+  function thickLoss(oldAoa, newAoa) {
+    const o = oldAoa && oldAoa.length ? thickSheetParse(oldAoa) : null;
+    if (!o) return 0;
+    const n = newAoa && newAoa.length ? thickSheetParse(newAoa) : null;
+    const key = r => `${r[1]}|${Math.round(Number(r[3]))}`;
+    const have = new Set(n ? n.series.map(key) : []);
+    return o.series.filter(r => !have.has(key(r))).length + o.summary.filter(r => !(n && n.summary.some(x => x[3] === r[3] && x[4] === r[4]))).length;
+  }
   // Sheets to write after the first one: every old sheet kept as is, ThickMon merged with the new rows (never replaced).
   function mergeExtraSheets(oldExtra, summary, series) {
     const old = oldExtra || [];
@@ -1392,7 +1413,7 @@
     layeredToolingMeasurements, latestOf, legacyCalibrationMeta, legacyCalibrationMeasurements, emptyCalibrationMeta,
     calibrationMetaFromRows, calibrationMeasurementsFromRows, matchCalibration, noCalibration, comboLabel, mergeComboOption,
     buildFileIndex, buildCalibrationIndex,
-    DRAFT_LAYER_DEFAULTS, draftLayerToEditorRow, draftLayersToEditorRows, tagCodepRows, codepShare, CODEP_COL, readSheetMeta, THICK_KEY, THICK_SHEET, SUMMARY_HEAD, SERIES_HEAD, thickToMeta, thickFromMeta, thickItems, thickResult, detectStart, heatCheck, thickSheetParse, thickSheetMerge, thickPoints, thickSummaryRow, thickSeriesRows, mergeExtraSheets, editRoundTripLossy, draftLayersFromRows, presetToDraftLayers, draftLayersToPresetRows,
+    DRAFT_LAYER_DEFAULTS, draftLayerToEditorRow, draftLayersToEditorRows, tagCodepRows, codepShare, CODEP_COL, readSheetMeta, THICK_KEY, THICK_SHEET, SUMMARY_HEAD, SERIES_HEAD, thickToMeta, thickFromMeta, thickItems, thickResult, detectStart, heatCheck, thickSheetParse, thickSheetMerge, unionExtra, thickLoss, thickPoints, thickSummaryRow, thickSeriesRows, mergeExtraSheets, editRoundTripLossy, draftLayersFromRows, presetToDraftLayers, draftLayersToPresetRows,
     buildPresetWorkbookSheets, safeFileName, pathSafe, timeTag, PROCESS_ID_KEY, processId, keepProcessId,
     setAoa, buildProcessLogSheet, processLogFolder, buildCalibrationSheet, buildStructureSheet, structureRowsFromSheet
   };
