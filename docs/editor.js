@@ -555,8 +555,8 @@
             ${thickSelect(l, i)}
             <div class="measure-head">
               <span></span>
-              <button data-act="start" data-i="${i}">${l.started_at ? "▶ 시작 ↺" : "▶ 시작"}<small>${esc((l.started_at || "").slice(11))}</small></button>
-              <button data-act="end" data-i="${i}">${l.ended_at ? "■ 끝 ↺" : "■ 끝"}<small>${esc((l.ended_at || "").slice(11))}</small></button>
+              <button data-act="start" data-i="${i}">${l.started_at ? (l.ended_at ? "▶ 시작 ↺" : "▶ 시작 · 탭하면 취소") : "▶ 시작"}<small>${esc((l.started_at || "").slice(11))}</small></button>
+              <button data-act="end" data-i="${i}">${l.ended_at ? "■ 끝 · 탭하면 취소" : "■ 끝"}<small>${esc((l.ended_at || "").slice(11))}</small></button>
             </div>
             ${["pressure", "rate", "power", "temp"].map(k => measureRow(l, i, k)).join("")}
             ${thickExtra(l, i)}
@@ -621,8 +621,8 @@
           <div class="phase">
             <div class="measure-head">
               <span></span>
-              <button data-act="start" data-i="${i}">${l.started_at ? "▶ 시작 ↺" : "▶ 시작"}<small>${esc((l.started_at || "").slice(11))}</small></button>
-              <button data-act="end" data-i="${i}">${l.ended_at ? "■ 끝 ↺" : "■ 끝"}<small>${esc((l.ended_at || "").slice(11))}</small></button>
+              <button data-act="start" data-i="${i}">${l.started_at ? (l.ended_at ? "▶ 시작 ↺" : "▶ 시작 · 탭하면 취소") : "▶ 시작"}<small>${esc((l.started_at || "").slice(11))}</small></button>
+              <button data-act="end" data-i="${i}">${l.ended_at ? "■ 끝 · 탭하면 취소" : "■ 끝"}<small>${esc((l.ended_at || "").slice(11))}</small></button>
             </div>
             ${measureRow(l, i, "pressure")}
             ${members.map(([j, m]) => `
@@ -1028,6 +1028,15 @@
         }
         if (act === "start" || act === "end") {
           const key = act === "start" ? "started_at" : "ended_at";
+          const cancel = layers[i][key] && (act === "end" || !layers[i].ended_at);
+          if (cancel) {
+            if (!confirm(act === "end" ? "종료 취소할까요? (끝 시각·자동 채운 끝 값 삭제, 진행 중으로 복귀)" : "시작 취소할까요? (시작 시각·자동 채운 시작 값 삭제)")) return;
+            blockOf(i).forEach(j => Core.cancelMark(layers[j], act, Thick.enabled()));
+            if (act === "end") setShared(i, "collapsed", false);
+            persist();
+            refreshCard(i); renderStructure(); syncRunningState();
+            return;
+          }
           if (layers[i][key] && !confirm(`${act === "start" ? "시작" : "끝"} 시각을 지금으로 바꿀까요?`)) return;
           setShared(i, key, nowText());
           setShared(i, act === "start" ? "started_ms" : "ended_ms", Date.now());

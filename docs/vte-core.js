@@ -757,6 +757,15 @@
     return layers;
   }
   // One-touch result: monitor thickness = end - start (nm); mean rate = thickness / elapsed time (A/s). The only arithmetic the app does itself.
+  // Undo a mistaken start/end press: only timestamps and auto-filled snapshot values are cleared; typed values and ThickMon series rows stay.
+  function cancelMark(l, which, auto) {
+    const end = {ended_at: "", ended_ms: 0, mon_diff: "", avg_rate: "", heat: "", heat_delta: "", end_pending: ""};
+    if (auto) Object.assign(end, {end_thk: "", end_rate: "", end_power: ""});
+    if (which === "end") return Object.assign(l, end);
+    Object.assign(l, end, {started_at: "", started_ms: 0, start_pending: "", det_ms: 0, det_power: "", det_temp: ""});
+    if (auto) Object.assign(l, {start_thk: "", start_rate: "", start_power: ""});
+    return l;
+  }
   function thickResult({startThk, endThk, startMs, endMs}) {
     const a = toFloat(startThk), b = toFloat(endThk);
     if (a === null || b === null || !startMs || !endMs || endMs <= startMs) return null;
@@ -1054,7 +1063,7 @@
     layeredToolingMeasurements, latestOf, legacyCalibrationMeta, legacyCalibrationMeasurements, emptyCalibrationMeta,
     calibrationMetaFromRows, calibrationMeasurementsFromRows, matchCalibration, noCalibration, comboLabel, mergeComboOption,
     buildFileIndex, buildCalibrationIndex,
-    DRAFT_LAYER_DEFAULTS, draftLayerToEditorRow, draftLayersToEditorRows, tagCodepRows, codepShare, CODEP_COL, readSheetMeta, THICK_KEY, THICK_SHEET, SUMMARY_HEAD, SERIES_HEAD, thickToMeta, thickFromMeta, thickItems, thickResult, detectStart, heatCheck, thickSheetParse, thickSheetMerge, unionExtra, thickLoss, thickPoints, thickSummaryRow, thickSeriesRows, mergeExtraSheets, editRoundTripLossy, draftLayersFromRows, presetToDraftLayers, draftLayersToPresetRows,
+    DRAFT_LAYER_DEFAULTS, draftLayerToEditorRow, draftLayersToEditorRows, tagCodepRows, codepShare, CODEP_COL, readSheetMeta, THICK_KEY, THICK_SHEET, SUMMARY_HEAD, SERIES_HEAD, thickToMeta, thickFromMeta, thickItems, thickResult, cancelMark, detectStart, heatCheck, thickSheetParse, thickSheetMerge, unionExtra, thickLoss, thickPoints, thickSummaryRow, thickSeriesRows, mergeExtraSheets, editRoundTripLossy, draftLayersFromRows, presetToDraftLayers, draftLayersToPresetRows,
     buildPresetWorkbookSheets, safeFileName, pathSafe, timeTag, PROCESS_ID_KEY, processId, keepProcessId,
     setAoa, buildProcessLogSheet, processLogFolder, buildCalibrationSheet, buildStructureSheet, structureRowsFromSheet
   };

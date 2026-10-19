@@ -1,0 +1,10 @@
+const assert = require("assert/strict");
+const Core = require("../src/core/vte-core.js");
+const mk = () => ({started_at: "a", started_ms: 1, ended_at: "b", ended_ms: 2, start_thk: "1", end_thk: "9", start_rate: "1", end_rate: "2", start_power: "5", end_power: "6", end_temp: "300", mon_diff: "8", avg_rate: "1", heat: "1", heat_delta: "2", end_pending: "1", det_ms: 5, det_power: "5", det_temp: "3", notes: "keep"});
+let l = Core.cancelMark(mk(), "end", true);
+assert.equal(l.ended_at, ""); assert.equal(l.ended_ms, 0); assert.equal(l.end_thk, ""); assert.equal(l.end_power, ""); assert.equal(l.heat, ""); assert.equal(l.mon_diff, "");
+assert.equal(l.started_at, "a"); assert.equal(l.start_thk, "1"); assert.equal(l.det_ms, 5); assert.equal(l.end_temp, "300"); assert.equal(l.notes, "keep");
+l = Core.cancelMark(mk(), "end", false); assert.equal(l.end_thk, "9"); assert.equal(l.ended_ms, 0);
+l = Core.cancelMark(mk(), "start", true);
+assert.equal(l.started_at, ""); assert.equal(l.started_ms, 0); assert.equal(l.start_thk, ""); assert.equal(l.det_ms, 0); assert.equal(l.end_thk, ""); assert.equal(l.notes, "keep");
+console.log("cancel mark ok");
