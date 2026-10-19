@@ -69,8 +69,8 @@
   const clearTarget = (port, label) => postJson("/target/clear", {port, layer_label: label || ""});
   const healthBadge = h => (h === null || h === undefined || Number.isNaN(Number(h)) ? null : {text: `health ${Math.round(Number(h))}%`, color: Number(h) <= 70 ? "#d33" : Number(h) <= 80 ? "#e8890c" : ""});
   const live = async () => (await getJson("/live"))?.ports || null;
-  async function range(port, fromMs, toMs) {
-    const j = await getJson(`/range?port=${encodeURIComponent(port)}&from=${Math.floor(fromMs / 1000)}&to=${Math.ceil(toMs / 1000)}`, 8000);
+  async function range(port, fromMs, toMs, ms = 8000) {
+    const j = await getJson(`/range?port=${encodeURIComponent(port)}&from=${Math.floor(fromMs / 1000)}&to=${Math.ceil(toMs / 1000)}`, ms);
     return j ? (j.rows || []) : null;
   }
   const num = v => (v === null || v === undefined || Number.isNaN(Number(v)) ? null : Number(v));
@@ -512,22 +512,32 @@
   }
   function stop() { clearInterval(timer); timer = null; }
 
-  // Series for the xlsx extra sheet, thinned to at most `max` rows.
-  // One series per started layer over [t0-3min, t1+3min], all in parallel, each retried once and capped at capMs. Returns {rows: [rows|null per item], failed}.
-  async function layerSeries(items, capMs = 15000) {
+  // Series for the xlsx extra sheet. A /range reply is ~1 MB (no compression), so a 28-layer log must not be fetched all at once:
+  // at most `conc` requests in flight, each with its own timeout counted from when it actually starts, three tries, then a last sweep of the failures.
+  // Returns {rows: [rows|null per item], failed}.
+  async function layerSeries(items, capMs = 25000, conc = 4) {
     const one = async l => {
       const to = l.ended_ms ? Math.min(Date.now(), l.ended_ms + 180000) : Date.now();
-      for (let a = 0; a < 2; a++) {
-        const r = await Promise.race([series(l.sensor_port, l.started_ms - 180000, to).catch(() => null), new Promise(res => setTimeout(() => res(null), capMs))]);
+      const from = l.started_ms - 180000;
+      for (let a = 0; a < 3; a++) {
+        const r = await series(l.sensor_port, from, to, 600, capMs);
         if (r) return r;
       }
       return null;
     };
-    const rows = await Promise.all(items.map(one));
+    const rows = new Array(items.length).fill(null);
+    const pass = async idx => {
+      let next = 0;
+      await Promise.all(Array.from({length: Math.min(conc, idx.length)}, async () => {
+        while (next < idx.length) { const k = idx[next++]; rows[k] = await one(items[k]); }
+      }));
+    };
+    await pass(items.map((_, k) => k));
+    await pass(rows.map((r, k) => (r ? -1 : k)).filter(k => k >= 0));
     return {rows, failed: rows.filter(r => !r).length};
   }
-  async function series(port, fromMs, toMs, max = 600) {
-    const rows = await range(port, fromMs, toMs);
+  async function series(port, fromMs, toMs, max = 600, ms = 8000) {
+    const rows = await range(port, fromMs, toMs, ms);
     if (!rows) return null;
     const step = Math.max(1, Math.ceil(rows.length / max));
     return rows.filter((r, i) => i % step === 0 || r.flag);
