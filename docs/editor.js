@@ -758,6 +758,10 @@
     async function uploadDraft(mode = "close") {
       const ids = ["#uploadBtn", "#saveLogBtn", "#saveAsLogBtn"];
       ids.forEach(sel => { const b = $(sel); if (b) b.disabled = true; });
+      // Busy label on the pressed button itself; the bottom status line can be off screen.
+      const btn = $(mode === "close" ? "#uploadBtn" : mode === "saveAs" ? "#saveAsLogBtn" : "#saveLogBtn");
+      const label = btn ? btn.textContent : "";
+      if (btn) btn.textContent = "저장 중…";
       $("#editorError").textContent = "";
       showSaved("저장 중…");
       try {
@@ -769,6 +773,7 @@
         alert(`${msg}\n(입력한 기록은 폰에 그대로 있어요)`);
       } finally {
         ids.forEach(sel => { const b = $(sel); if (b) b.disabled = false; });
+        if (btn && btn.isConnected) btn.textContent = label;
       }
     }
     async function uploadDraftInner(mode) {
@@ -840,6 +845,7 @@
         if (mode === "close" && editing && !inPlace) alert(`새 파일로 저장했어요.\n원래 파일(${editing.relPath.split("/").pop()})은 그대로 있어요.`);
         if (mode !== "close") { renderEditor(); return; }
         if (log) openLog(log); else ctx.setTab("logs");
+        alert(`Dropbox에 저장했어요.\n${fileName}`);
       } catch (e) {
         if (isNetworkError(e)) await queueDraft();
         else err(`저장 실패: ${e.message}`);
