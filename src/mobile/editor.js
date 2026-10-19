@@ -487,7 +487,7 @@
       if (text) savedTimer = setTimeout(() => { el.textContent = ""; }, 4000);
     }
     $("#editorSaved").addEventListener("click", () => showSaved(""));
-    const thickSelect = (l, i) => !Thick.enabled() ? "" : `<div class="thick-row"><label>두께 센서<select data-i="${i}" data-k="sensor_port">${["", ...Thick.SENSORS].map(p => `<option ${p === (l.sensor_port || "") ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>${l.sensor_port ? '<span class="thick-status" data-thickstatus data-i="${i}"></span>' : ""}<div class="thick-warn" data-thickwarn="${blockOf(i).join(",")}"></div></div>`;
+    const thickSelect = (l, i) => !Thick.enabled() ? "" : `<div class="thick-row"><label>두께 센서<select data-i="${i}" data-k="sensor_port">${["", ...Thick.SENSORS].map(p => `<option ${p === (l.sensor_port || "") ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>${l.sensor_port ? '<span class="thick-status" data-thickstatus data-i="${i}"></span>' : ""}${l.sensor_port ? `<span class="thick-health" data-thickhealth="${esc(l.sensor_port)}"></span>` : ""}<div class="thick-warn" data-thickwarn="${blockOf(i).join(",")}"></div></div>`;
     const thickExtra = (l, i, merged = false) => !Thick.enabled() || !l.sensor_port ? "" : merged ? measureRow(l, i, "thk") : `${measureRow(l, i, "thk")}
       <div class="thick-box" data-thickbox data-i="${i}">
         <div class="thick-live">
@@ -1031,7 +1031,7 @@
           const cancel = layers[i][key] && (act === "end" || !layers[i].ended_at);
           if (cancel) {
             if (!confirm(act === "end" ? "종료 취소할까요? (끝 시각·자동 채운 끝 값 삭제, 진행 중으로 복귀)" : "시작 취소할까요? (시작 시각·자동 채운 시작 값 삭제)")) return;
-            blockOf(i).forEach(j => Core.cancelMark(layers[j], act, Thick.enabled()));
+            blockOf(i).forEach(j => { if (Thick.enabled() && layers[j].sensor_port) Thick.clearTarget(layers[j].sensor_port, layers[j].material); Core.cancelMark(layers[j], act, Thick.enabled()); });
             if (act === "end") setShared(i, "collapsed", false);
             persist();
             refreshCard(i); renderStructure(); syncRunningState();
@@ -1052,6 +1052,8 @@
               l[`${when}_thk`] = s.thk === null || s.thk === undefined ? "" : Thick.fmtNum(s.thk, 2);
               l[`${when}_rate`] = s.rate === null || s.rate === undefined ? "" : Thick.fmtNum(s.rate, 3);
               if (s.power !== null && s.power !== undefined) l[`${when}_power`] = Thick.fmtNum(s.power, 1);
+              if (act === "start" && l.sensor_port && s.thk !== null && s.thk !== undefined) Thick.setTarget(l.sensor_port, l.material, Core.toFloat(l.monitor), s.thk, draft.createdAt);
+              if (act === "end" && l.sensor_port) Thick.clearTarget(l.sensor_port, l.material);
               l[`${when}_pending`] = l[`${when}_thk`] && l[`${when}_rate`] ? "" : "1";
               if (act === "end" && l.start_thk && l.end_thk) {
                 const res = Core.thickResult({startThk: l.start_thk, endThk: l.end_thk, startMs: l.started_ms, endMs: l.ended_ms});

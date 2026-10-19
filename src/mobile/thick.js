@@ -56,6 +56,18 @@
       clearTimeout(timer);
     }
   }
+  // Tells the alert service which thickness a layer must reach (best effort; failures ignored).
+  async function postJson(path, body) {
+    const base = url();
+    if (!base) return;
+    try { await fetch(base + path, {method: "POST", body: JSON.stringify(body), keepalive: true}); } catch (e) { /* ignore */ }
+  }
+  const setTarget = (port, label, targetNm, startNm, logId) => {
+    const t = Number(targetNm), s = Number(startNm);
+    return t > 0 && Number.isFinite(s) ? postJson("/target", {port, layer_label: label || "", target_monitor_nm: t, start_thk_nm: s, log_id: logId || ""}) : null;
+  };
+  const clearTarget = (port, label) => postJson("/target/clear", {port, layer_label: label || ""});
+  const healthBadge = h => (h === null || h === undefined || Number.isNaN(Number(h)) ? null : {text: `health ${Math.round(Number(h))}%`, color: Number(h) <= 70 ? "#d33" : Number(h) <= 80 ? "#e8890c" : ""});
   const live = async () => (await getJson("/live"))?.ports || null;
   async function range(port, fromMs, toMs) {
     const j = await getJson(`/range?port=${encodeURIComponent(port)}&from=${Math.floor(fromMs / 1000)}&to=${Math.ceil(toMs / 1000)}`, 8000);
@@ -348,8 +360,13 @@
   async function refresh(ctx, root = document) {
     if (!enabled()) return;
     const warns = [...root.querySelectorAll("[data-thickwarn]")];
-    if (warns.length) {
+    const badges = [...root.querySelectorAll("[data-thickhealth]")];
+    if (warns.length || badges.length) {
       const lp = await live();
+      for (const el of badges) {
+        const b = healthBadge(lp?.[el.dataset.thickhealth]?.health);
+        el.textContent = b ? b.text : ""; el.style.color = b ? b.color : "";
+      }
       for (const el of warns) {
         const idx = String(el.dataset.thickwarn).split(",").map(Number), ls = ctx.layers();
         const own = ls[idx[0]];
@@ -503,5 +520,5 @@
     return rows.filter((r, i) => i % step === 0 || r.flag);
   }
 
-  root.VTEThick = {SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, series, watch, stop, refresh, drawChart, chartTitle, fmtNum};
+  root.VTEThick = {SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, watch, stop, refresh, drawChart, chartTitle, fmtNum};
 })(typeof globalThis !== "undefined" ? globalThis : this);
