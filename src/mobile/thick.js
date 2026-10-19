@@ -321,9 +321,11 @@
         el.textContent = [own ? sensorWarning(own, lp) : "", sharedSensorNote(idx.map(j => ls[j]).filter(Boolean))].filter(Boolean).join(" · ");
       }
     }
+    const allLayers = ctx.layers(), nextPre = new Set();
+    for (const port of new Set(allLayers.filter(x => x && x.sensor_port && !x.started_ms).map(x => x.sensor_port))) nextPre.add(allLayers.findIndex(x => x && x.sensor_port === port && !x.started_ms));
     for (const canvas of root.querySelectorAll("canvas[data-thickchart]")) {
       const i = Number(canvas.dataset.i);
-      const l = ctx.layers()[i];
+      const l = allLayers[i];
       const box = canvas.closest("[data-thickbox]");
       const label = root.querySelector(`[data-thickstatus][data-i="${i}"]`) || (box && box.querySelector("[data-thickstatus]")) || (box && box.parentElement && box.parentElement.querySelector("[data-thickstatus]")) || canvas.closest("section,article,.card,.layer")?.querySelector("[data-thickstatus]") || null;
       if (!l || !l.sensor_port) continue;
@@ -332,7 +334,9 @@
       const t0 = l.started_ms ? l.started_ms - 180000 : now - 180000;
       const t1 = l.ended_ms ? Math.min(now, l.ended_ms + 180000) : now;
       const settled = l.ended_ms && now > l.ended_ms + 190000;
-      const id = `${l.sensor_port}|${t0}|${l.ended_ms || ""}`;
+      const pre = !l.started_ms;
+      if (pre && !nextPre.has(i)) { if (label) label.textContent = "시작 전"; continue; }
+      const id = pre ? `${l.sensor_port}|pre` : `${l.sensor_port}|${t0}|${l.ended_ms || ""}`;
       let hit = cache.get(id);
       if (!hit) { hit = {rows: [], lastTs: 0, okAt: 0, nextAt: 0, fails: 0, busy: false, full: false, done: false}; cache.set(id, hit); }
       if (!hit.done && !hit.busy && now >= hit.nextAt) {
@@ -342,6 +346,7 @@
           if (rows) {
             if (!hit.full) hit.rows = rows;
             else { for (const r of rows) if (r.ts > hit.lastTs) hit.rows.push(r); }
+            if (pre) { const cut = (now - 200000) / 1000; if (hit.rows.length && hit.rows[0].ts < cut) hit.rows = hit.rows.filter(r => r.ts >= cut); }
             if (hit.rows.length) hit.lastTs = hit.rows[hit.rows.length - 1].ts;
             hit.full = true; hit.fails = 0; hit.okAt = Date.now(); hit.nextAt = hit.okAt + 1800;
             if (settled) hit.done = true;
