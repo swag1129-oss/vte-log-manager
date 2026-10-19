@@ -42,7 +42,7 @@
   const url = () => (localStorage.getItem(KEY) || DEFAULT_URL).trim().replace(/\/+$/, "");
   const enabled = () => Boolean(url());
 
-  async function getJson(path, ms = 3500) {
+  async function getJson(path, ms = 8000) {
     const base = url();
     if (!base) return null;
     const ac = new AbortController();
@@ -64,7 +64,9 @@
   const num = v => (v === null || v === undefined || Number.isNaN(Number(v)) ? null : Number(v));
   // Values for the form: thickness (5 s median) in nm, rate_fit (adaptive 10-60 s slope of it) in Å/s, power in %. Raw RS232 `rate` is never used for autofill.
   async function snapshot(port) {
-    const p = (await live())?.[port];
+    let lp = await live();
+    if (!lp) lp = await live();
+    const p = lp?.[port];
     if (!p || !p.ok) return null;
     // Port D power is a manual knob (always 0 on the wire): never autofill it.
     return {thk: num(p.thk_med ?? p.thk_nm), rate: num(p.rate_fit), power: port === "D" ? null : num(p.power)};
@@ -346,13 +348,14 @@
           } else { hit.fails++; hit.nextAt = Date.now() + Math.min(5000, 1000 * hit.fails); }
         } finally { hit.busy = false; }
       }
-      if (!hit.okAt) { if (label) label.textContent = "서버 연결 안 됨"; continue; }
+      if (!hit.okAt) { if (label) label.textContent = hit.fails >= 3 ? "서버 연결 안 됨" : "연결 중…"; continue; }
       const {patch, out, merged} = analyze(l, i, hit.rows, now, ctx);
       if (Object.keys(patch).length) ctx.set(i, patch);
       const age = Math.max(0, Math.round((Date.now() - hit.okAt) / 1000));
       if (label) {
         label.textContent = (hit.rows.length ? `${hit.rows.length}점 · ${running ? "실시간" : l.ended_ms ? "구간 기록" : "최근 3분"}` : "데이터 없음") + (hit.done ? "" : ` · 갱신 ${age}초 전`);
         label.style.color = !hit.done && age > 10 ? "#e8890c" : "";
+        if (!hit.done && (hit.fails >= 3 || age > 15)) label.textContent = "서버 연결 안 됨";
       }
       const drawRows = hit.rows.length > 3000 ? hit.rows.filter((r, k) => k % Math.ceil(hit.rows.length / 3000) === 0 || r.flag || k === hit.rows.length - 1) : hit.rows;
       drawChart(canvas, drawRows, t0, Math.max(t1, t0 + 1000), l.started_ms, l.ended_ms, l.sensor_port, {detMs: merged.det_ms, title: chartTitle(l.sensor_port, hit.rows, l.material)});
