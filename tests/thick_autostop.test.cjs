@@ -1,0 +1,13 @@
+const assert = require("assert/strict");
+global.localStorage = {getItem: () => null};
+const T0 = require("../src/mobile/thick.js"); const T = global.VTEThick || T0;
+const rows = [{ts: 1000}, {ts: 1100, flag: "start"}, {ts: 1200, flag: "stop"}, {ts: 1300, flag: "start"}, {ts: 1400, flag: "stop"}];
+const L = (o = {}) => ({sensor_port: "B", started_ms: 1100000, ...o});
+const f = (l, now = 1500000) => T.findAutoStop(l, rows, now);
+assert.equal(f(L()), 1200000);
+assert.equal(f(L({ended_ms: 1250000})), null, "already ended");
+assert.equal(f(L({started_ms: 0})), null, "not started");
+assert.equal(f(L({started_ms: 1200000})), 1400000, "stop at/before start ignored");
+assert.equal(f(L({auto_end_skip_ms: 1200000})), 1400000, "cancelled event is not reused");
+assert.equal(f(L(), 1100000), null, "future event ignored");
+console.log("thick autostop ok");

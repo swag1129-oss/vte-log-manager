@@ -550,6 +550,13 @@
         }
         persist(); refreshCard(i); renderStructure(); syncRunningState();
       },
+      autoEnd(i, evMs) {
+        const l = draft && draft.layers[i];
+        if (!l || !l.started_ms || l.ended_ms || evMs <= l.started_ms) return;
+        Object.assign(l, {ended_at: nowText(new Date(evMs)), ended_ms: evMs, auto_end: "1", auto_end_skip_ms: evMs, end_thk: "", end_rate: "", end_pending: "1", mon_diff: "", avg_rate: "", heat: "", heat_delta: "", collapsed: true});
+        if (Thick.enabled() && l.sensor_port) Thick.clearTarget(l.sensor_port, l.material);
+        persist(); refreshCard(i); renderStructure(); syncRunningState();
+      },
       set(i, patch) { if (!draft || !draft.layers[i]) return; Object.assign(draft.layers[i], patch); persist(); patchCard(i); }
     };
     const cardHtml = (idx, n) => (draft.layers[idx[0]].codep ? codepCard(idx, n, draft.type === "툴링") : layerCard(draft.layers[idx[0]], idx[0], draft.type === "툴링", n));
@@ -567,7 +574,7 @@
         <div class="head"><b class="toggle" role="button" data-act="toggle" data-i="${i}">${l.collapsed ? "▸" : "▾"} ${n + 1}. ${l.material ? `<span class="mat">${esc(l.material)}</span>` : "재료 선택"}${l.port ? ` <span class="port">${esc(l.port)}</span>` : ""}</b>
           <select class="mask-select" data-i="${i}" data-k="mask" aria-label="마스크">${masks}</select>
           <span class="tools"><button data-act="up" data-i="${i}">↑</button><button data-act="down" data-i="${i}">↓</button><button data-act="remove" data-i="${i}" class="danger">✕</button></span></div>
-        <div class="summary ${elapsed ? "" : "no-elapsed"}"><span class="sum-text">${esc(summary)}</span> <span class="elapsed" data-elapsed="${i}">${elapsed}</span>${l.auto_start && l.started_at && !l.ended_at ? `<button type="button" class="auto-note" data-act="auto-cancel" data-i="${i}">장비 Start로 자동 시작됨 · 탭하면 취소</button>` : ""}</div>
+        <div class="summary ${elapsed ? "" : "no-elapsed"}"><span class="sum-text">${esc(summary)}</span> <span class="elapsed" data-elapsed="${i}">${elapsed}</span>${l.auto_start && l.started_at && !l.ended_at ? `<button type="button" class="auto-note" data-act="auto-cancel" data-i="${i}">장비 Start로 자동 시작됨 · 탭하면 취소</button>` : ""}${l.auto_end && l.ended_at ? `<button type="button" class="auto-note" data-act="autoend-cancel" data-i="${i}">장비 Stop으로 자동 종료됨 · 탭하면 취소</button>` : ""}</div>
         <div class="body">
           <div class="hero">
             <div class="hero-row">
@@ -619,7 +626,7 @@
         <div class="head"><b class="toggle" role="button" data-act="toggle" data-i="${i}">${l.collapsed ? "▸" : "▾"} ${n + 1}. ${members.map(([, m]) => (m.material ? `<span class="mat">${esc(m.material)}</span>` : "재료?")).join(" : ")}</b>
           <select class="mask-select" data-i="${i}" data-k="mask" aria-label="마스크">${masks}</select>
           <span class="tools"><button data-act="up" data-i="${i}">↑</button><button data-act="down" data-i="${i}">↓</button><button data-act="remove" data-i="${i}" class="danger">✕</button></span></div>
-        <div class="summary ${elapsed ? "" : "no-elapsed"}"><span class="sum-text">${esc(summary)}</span> <span class="elapsed" data-elapsed="${i}">${elapsed}</span>${l.auto_start && l.started_at && !l.ended_at ? `<button type="button" class="auto-note" data-act="auto-cancel" data-i="${i}">장비 Start로 자동 시작됨 · 탭하면 취소</button>` : ""}</div>
+        <div class="summary ${elapsed ? "" : "no-elapsed"}"><span class="sum-text">${esc(summary)}</span> <span class="elapsed" data-elapsed="${i}">${elapsed}</span>${l.auto_start && l.started_at && !l.ended_at ? `<button type="button" class="auto-note" data-act="auto-cancel" data-i="${i}">장비 Start로 자동 시작됨 · 탭하면 취소</button>` : ""}${l.auto_end && l.ended_at ? `<button type="button" class="auto-note" data-act="autoend-cancel" data-i="${i}">장비 Stop으로 자동 종료됨 · 탭하면 취소</button>` : ""}</div>
         <div class="body">
           <div class="hero">
             <div class="hero-row">
@@ -1084,6 +1091,13 @@
           persist();
           return renderEditor();
         }
+        if (act === "autoend-cancel") {
+          const l = layers[i];
+          if (Thick.enabled() && l.sensor_port) Thick.clearTarget(l.sensor_port, l.material);
+          Core.cancelMark(l, "end", Thick.enabled()); l.collapsed = false;
+          persist(); refreshCard(i); renderStructure(); syncRunningState();
+          return;
+        }
         if (act === "auto-cancel") {
           blockOf(i).forEach(j => { if (Thick.enabled() && layers[j].sensor_port) Thick.clearTarget(layers[j].sensor_port, layers[j].material); Core.cancelMark(layers[j], "start", Thick.enabled()); });
           persist(); refreshCard(i); renderStructure(); syncRunningState();
@@ -1102,6 +1116,7 @@
           }
           if (layers[i][key] && !confirm(`${act === "start" ? "시작" : "끝"} 시각을 지금으로 바꿀까요?`)) return;
           if (act === "start") setShared(i, "auto_start", "");
+          else setShared(i, "auto_end", "");
           setShared(i, key, nowText());
           setShared(i, act === "start" ? "started_ms" : "ended_ms", Date.now());
           if (Thick.enabled()) {

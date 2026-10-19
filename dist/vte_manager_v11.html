@@ -1118,7 +1118,8 @@
   // One-touch result: monitor thickness = end - start (nm); mean rate = thickness / elapsed time (A/s). The only arithmetic the app does itself.
   // Undo a mistaken start/end press: only timestamps and auto-filled snapshot values are cleared; typed values and ThickMon series rows stay.
   function cancelMark(l, which, auto) {
-    const end = {ended_at: "", ended_ms: 0, mon_diff: "", avg_rate: "", heat: "", heat_delta: "", end_pending: ""};
+    if (l.auto_end) l.auto_end_skip_ms = l.ended_ms;
+    const end = {auto_end: "", ended_at: "", ended_ms: 0, mon_diff: "", avg_rate: "", heat: "", heat_delta: "", end_pending: ""};
     if (auto) Object.assign(end, {end_thk: "", end_rate: "", end_power: ""});
     if (which === "end") return Object.assign(l, end);
     Object.assign(l, end, {started_at: "", started_ms: 0, start_pending: "", auto_start: "", det_ms: 0, det_power: "", det_temp: ""});

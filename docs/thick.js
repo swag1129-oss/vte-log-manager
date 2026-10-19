@@ -297,6 +297,14 @@
     for (const r of rows) if (r.flag === "start" && r.ts * 1000 > floor && r.ts * 1000 <= now + 5000) best = r;
     return best ? Math.round(best.ts * 1000) : null;
   }
+  // Instrument Stop (flag "stop") on this running layer's port after its start and not yet skipped (cancelled); null otherwise.
+  function findAutoStop(l, rows, now) {
+    if (!l || !l.started_ms || l.ended_ms || !l.sensor_port) return null;
+    const floor = Math.max(l.started_ms, l.auto_end_skip_ms || 0);
+    let best = null;
+    for (const r of rows) if (r.flag === "stop" && r.ts * 1000 > floor && r.ts * 1000 <= now + 5000) { best = r; break; }
+    return best ? Math.round(best.ts * 1000) : null;
+  }
   const mmss = sec => `${Math.floor(sec / 60)}:${String(Math.max(0, Math.round(sec % 60))).padStart(2, "0")}`;
 
   // Everything the page does with a running or finished layer, from one server fetch: chart, big numbers, delayed start/end values, start detection, heat check, one-touch result.
@@ -441,6 +449,10 @@
       const ev = findAutoStart(l, ctx.layers(), hit.rows, now);
       if (ev) { ctx.autoStart(i, ev, hit.rows); return null; }
     }
+    if (running && ctx.autoEnd) {
+      const ev = findAutoStop(l, hit.rows, now);
+      if (ev) { ctx.autoEnd(i, ev); return null; }
+    }
     const {patch, out, merged} = analyze(l, i, hit.rows, now, ctx);
     if (Object.keys(patch).length) ctx.set(i, patch);
     const age = Math.max(0, Math.round((Date.now() - hit.okAt) / 1000));
@@ -568,5 +580,5 @@
     return rows.filter((r, i) => i % step === 0 || r.flag);
   }
 
-  root.VTEThick = {findAutoStart, SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
+  root.VTEThick = {findAutoStart, findAutoStop, SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
 })(typeof globalThis !== "undefined" ? globalThis : this);
