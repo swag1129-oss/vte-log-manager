@@ -4,7 +4,7 @@
   const CONFIG = {
     appKey: "5rz8t9p1imu4wa9",
     defaultRoot: "/NEXT LAB/Log/A222/VTE log/VTE_MANAGER",
-    version: "2026-10-19-4d78c683"
+    version: "2026-10-19-f9e02ee8"
   };
   const LS = {author: "vte.author", root: "vte.root"};
   const {fmt, displayDate, calcRequiredMonitor, calcMonitorRate} = VTECore;
@@ -45,7 +45,7 @@
   // ---------- data ----------
   async function loadModel() {
     const files = await app.store.allFiles();
-    app.files = new Map(files.map(f => [f.relPath, {rev: f.rev, name: f.name}]));
+    app.files = new Map(files.map(f => [f.relPath, {rev: f.rev, name: f.name, modified: f.modified}]));
     // In test mode, test files appear at their normal place with a "테스트" badge. With test mode off they are left out,
     // so test calibrations and presets never feed real runs.
     const prefix = VTEEditor.TEST_PREFIX;
@@ -504,11 +504,12 @@
     sheet.className = "sheet-backdrop";
     sheet.innerHTML = `<div class="sheet" role="dialog">
       <div class="meta"><b>업로드 대기</b><button data-close>닫기</button></div>
-      <p class="hint">인터넷이 연결되면 자동으로 올려요. 다른 기기에서 먼저 수정된 파일은 덮어쓰지 않고 새 파일로 올려요.</p>
+      <p class="hint">인터넷이 연결되면 자동으로 올려요. 다른 기기에서 먼저 수정된 파일은 덮어쓰지 않고 여기에 남겨둬요. 직접 '새 파일로 저장'이나 '버리기'를 고르세요.</p>
       <ul class="list">${jobs.map(j => `<li>
         <div class="name">${esc(j.label)}</div>
         <div class="hint">${esc(j.queuedAt)} 보관${j.error ? ` · <span class="error">${esc(j.error)}</span>` : ""}</div>
         <div class="row wrap" style="margin-top:6px">
+          ${j.newer ? `<button data-asnew="${esc(j.id)}">새 파일로 저장</button>` : ""}
           ${j.draft ? `<button data-restore="${esc(j.id)}">초안으로 되돌리기</button>` : ""}
           <button data-remove="${esc(j.id)}" class="danger">버리기</button>
         </div></li>`).join("") || '<p class="hint">대기 중인 업로드가 없어요.</p>'}</ul>
@@ -518,6 +519,7 @@
       const t = e.target;
       if (t === sheet || t.closest("[data-close]")) return sheet.remove();
       if (t.dataset.retry !== undefined) { sheet.remove(); if (!navigator.onLine) return alert("아직 오프라인이에요."); return editor.flushQueue(); }
+      if (t.dataset.asnew) { sheet.remove(); return editor.saveJobAsNew(t.dataset.asnew); }
       if (t.dataset.restore) { sheet.remove(); return editor.restoreJob(t.dataset.restore); }
       if (t.dataset.remove && confirm("이 업로드를 버릴까요? 폰에 보관된 내용이 사라져요.")) { sheet.remove(); return editor.removeJob(t.dataset.remove); }
     };

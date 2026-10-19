@@ -70,18 +70,20 @@
     }
     // Upload with the app's conflict rules. Returns {relPath, result} or null when the user cancels.
     // `fallbackPath`: where to save a new copy when an in-place update loses a conflict.
-    // `auto`: replaying the offline queue, where nobody is there to answer; a lost update always becomes a new file.
+    // `auto`: replaying the offline queue, where nobody is there to answer; a lost update throws `newerExists` and the job stays queued.
     async function uploadFile(relPath, bytes, {rev = null, what = "파일", fallbackPath = null, auto = false} = {}) {
       let base = relPath, target = relPath;
       for (let attempt = 0; attempt < 6; attempt++) {
         try {
           const result = await app.client.upload(target, bytes, {rev});
-          await VTEStore.cacheUploaded({store: app.store, XLSX, relPath: target, data: bytes, result});
+          try { await VTEStore.cacheUploaded({store: app.store, XLSX, relPath: target, data: bytes, result}); } catch (_) { /* cache only; the upload succeeded */ }
           return {relPath: target, result};
         } catch (err) {
           if (err.status !== 409 || !/conflict/.test(err.summary || "")) throw err;
           if (rev) {
-            if (!auto && !confirm(`다른 기기에서 먼저 수정된 ${what}예요.\n덮어쓰지 않고 새 파일로 저장할까요?`)) return null;
+            if (auto) { const e = new Error("같은 로그의 더 최신본이 Dropbox에 있어요."); e.newerExists = true; throw e; }
+            const mod = app.files.get(relPath)?.modified;
+            if (!confirm(`같은 로그의 더 최신본이 Dropbox에 있어요${mod ? ` (수정 ${mod.replace("T", " ").slice(0, 16)} UTC)` : ""}.\n${what}을(를) 덮어쓰지 않고 새 파일로 저장할까요?`)) return null;
             rev = null;
             base = target = fallbackPath || relPath.replace(/\.xlsx$/i, "_copy.xlsx");
             continue;
@@ -105,29 +107,54 @@
       await setQueue(jobs);
     }
     let flushing = false;
+    const withFlushLock = async fn => {
+      if (navigator.locks?.request) return navigator.locks.request("vte-flush-queue", {ifAvailable: true}, lock => (lock ? fn() : undefined));
+      return fn();
+    };
     async function flushQueue() {
       if (flushing || !navigator.onLine || !app.client?.isLoggedIn()) return;
       flushing = true;
-      const done = [];
+      const done = [], newer = [];
       try {
-        for (const job of await queueJobs()) {
-          try {
-            const saved = await uploadFile(job.relPath, job.bytes, {rev: job.rev, what: job.what, fallbackPath: job.fallbackPath, auto: true});
-            done.push(saved.relPath);
-            await setQueue((await queueJobs()).filter(j => j.id !== job.id));
-          } catch (e) {
-            if (isNetworkError(e)) break;
-            await setQueue((await queueJobs()).map(j => (j.id === job.id ? {...j, error: e.message} : j)));
+        await withFlushLock(async () => {
+          for (const job0 of await queueJobs()) {
+            // Re-read inside the lock: another tab may have uploaded and removed it already.
+            const job = (await queueJobs()).find(j => j.id === job0.id);
+            if (!job || job.newer) continue;
+            const drop = async () => setQueue((await queueJobs()).filter(j => j.id !== job.id));
+            if (job.uploadedTo) { await drop(); continue; }
+            try {
+              const saved = await uploadFile(job.relPath, job.bytes, {rev: job.rev, what: job.what, fallbackPath: job.fallbackPath, auto: true});
+              done.push(saved.relPath);
+              // Remember the upload first so a failed queue write can never trigger a second upload.
+              await setQueue((await queueJobs()).map(j => (j.id === job.id ? {...j, uploadedTo: saved.relPath} : j)));
+              await drop();
+            } catch (e) {
+              if (isNetworkError(e)) break;
+              if (e.newerExists) {
+                const mod = app.files.get(job.relPath)?.modified;
+                await setQueue((await queueJobs()).map(j => (j.id === job.id ? {...j, newer: true, error: `같은 로그의 더 최신본이 Dropbox에 있어요${mod ? ` (수정 ${mod.replace("T", " ").slice(0, 16)} UTC)` : ""}. 이 대기본은 보관함에 남겨뒀어요.`} : j)));
+                newer.push(job.label);
+              } else await setQueue((await queueJobs()).map(j => (j.id === job.id ? {...j, error: e.message} : j)));
+            }
           }
-        }
+        });
       } finally {
         flushing = false;
       }
+      if (newer.length) { await loadModel(); alert(`같은 로그의 더 최신본이 Dropbox에 있어요.\n대기본은 보관함에 남겨뒀어요: ${newer.join(", ")}\n(업로드 대기에서 '새 파일로 저장' 또는 '버리기')`); }
       if (done.length) {
         await loadModel();
         status(`대기 중이던 ${done.length}건 업로드 완료`);
         ctx.onQueueUploaded?.(done);
       }
+    }
+    // Manual choice for a job whose original file changed: keep the phone copy as a new file.
+    async function saveJobAsNew(id) {
+      const job = (await queueJobs()).find(j => j.id === id);
+      if (!job) return;
+      await setQueue((await queueJobs()).map(j => (j.id === id ? {...j, rev: null, relPath: j.fallbackPath || j.relPath, newer: false, error: ""} : j)));
+      return flushQueue();
     }
     async function removeJob(id) {
       await setQueue((await queueJobs()).filter(j => j.id !== id));
@@ -1106,7 +1133,7 @@
       await app.store.set("draft", null);
       return true;
     }
-    return {bind, render, flush, loadDraft, editLog, calibrationForm, discardIfEditing, queueJobs, flushQueue, removeJob, restoreJob, hasDraft: () => Boolean(draft), TEST_PREFIX};
+    return {bind, render, flush, loadDraft, editLog, calibrationForm, discardIfEditing, queueJobs, flushQueue, saveJobAsNew, removeJob, restoreJob, hasDraft: () => Boolean(draft), TEST_PREFIX};
   }
 
   root.VTEEditor = {create, TEST_PREFIX};
