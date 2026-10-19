@@ -683,17 +683,18 @@
       const summary = [];
       const series = [];
       if (Thick.enabled()) {
-        for (const {l, i} of layers.map((l, i) => ({l, i})).filter(({l}) => l.sensor_port && l.started_ms)) {
-          summary.push(Core.thickSummaryRow(l, i));
-          const rows = await Thick.series(l.sensor_port, l.started_ms - 30000, l.ended_ms ? Math.min(Date.now(), l.ended_ms + 180000) : Date.now());
-          series.push(...Core.thickSeriesRows(l, i, rows));
-        }
+        const items = layers.map((l, i) => ({l, i})).filter(({l}) => l.sensor_port && l.started_ms);
+        // All layers fetched at once with a hard cap: a slow ThickMon server must not stall the save (rows already in the file are kept by the merge).
+        const fetched = await Promise.all(items.map(({l}) => Promise.race([
+          Thick.series(l.sensor_port, l.started_ms - 30000, l.ended_ms ? Math.min(Date.now(), l.ended_ms + 180000) : Date.now()).catch(() => null),
+          new Promise(r => setTimeout(() => r(null), 12000))])));
+        items.forEach(({l, i}, k) => { summary.push(Core.thickSummaryRow(l, i)); series.push(...Core.thickSeriesRows(l, i, fetched[k])); });
       }
       let base = editing && editing.extra;
       // The cached copy can be older than the file (another device, an earlier save in this session): union it with the file's current sheets.
       if (editing && editing.inPlaceCheck && app.client && navigator.onLine) {
         try {
-          const {data} = await app.client.download(editing.realPath);
+          const {data} = await Promise.race([app.client.download(editing.realPath), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 15000))]);
           const fresh = VTEStore.readWorkbook(XLSX, data).extra;
           base = Core.unionExtra(base, fresh);
         } catch (e) { /* offline or deleted: fall back to the cached copy */ }
@@ -704,9 +705,25 @@
       return sheets;
     }
     async function uploadDraft(mode = "close") {
+      const ids = ["#uploadBtn", "#saveLogBtn", "#saveAsLogBtn"];
+      ids.forEach(sel => { const b = $(sel); if (b) b.disabled = true; });
+      $("#editorError").textContent = "";
+      showSaved("저장 중…");
+      try {
+        await uploadDraftInner(mode);
+      } catch (e) {
+        const msg = `저장 실패: ${e && e.message ? e.message : e}`;
+        $("#editorError").textContent = msg;
+        showSaved("");
+        alert(`${msg}\n(입력한 기록은 폰에 그대로 있어요)`);
+      } finally {
+        ids.forEach(sel => { const b = $(sel); if (b) b.disabled = false; });
+      }
+    }
+    async function uploadDraftInner(mode) {
       const d = draft;
-      const err = msg => { $("#editorError").textContent = msg; };
-      showSaved("");
+      const err = msg => { $("#editorError").textContent = msg; showSaved(""); alert(msg); };
+      showSaved("저장 중…");
       if (!/^\d{6}$/.test(d.date)) return err("날짜를 YYMMDD 6자리로 입력해 주세요.");
       const layers = d.layers.filter(l => String(l.material || "").trim());
       if (!layers.length) return err("재료가 입력된 레이어가 하나 이상 필요해요.");
