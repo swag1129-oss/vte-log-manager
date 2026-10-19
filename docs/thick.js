@@ -100,7 +100,22 @@
   }
   const MIN_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 180, 360];
   // opts.panels: keys to draw (default: those with data). opts.title: header text (time range is appended). The y axis follows the fitted line only; gray raw RS232 dots are clipped to it.
+  const LAST5_KEY = "vte.chart.last5";
+  const last5 = () => { try { return localStorage.getItem(LAST5_KEY) === "1"; } catch (e) { return false; } };
   function drawChart(canvas, rows, t0, t1, startMs, endMs, port, opts = {}) {
+    if (opts.toggle) {
+      canvas._args = [rows, t0, t1, startMs, endMs, port, opts];
+      if (!canvas._chipBound && canvas.addEventListener) {
+        canvas._chipBound = true;
+        canvas.addEventListener("click", e => {
+          const c = canvas._chip, r = canvas.getBoundingClientRect();
+          if (!c || e.clientX - r.left < c[0] || e.clientX - r.left > c[0] + c[2] || e.clientY - r.top < c[1] || e.clientY - r.top > c[1] + c[3]) return;
+          try { localStorage.setItem(LAST5_KEY, last5() ? "0" : "1"); } catch (err) { /* ignore */ }
+          for (const cv of document.querySelectorAll("canvas")) if (cv._args && cv._chipBound) drawChart(cv, ...cv._args);
+        });
+      }
+      if (last5() && t1 - t0 > 300000) t0 = t1 - 300000;
+    }
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth || 300;
     const wanted = opts.panels ? PANELS.filter(p => opts.panels.includes(p.key)) : PANELS.filter(p => rows.some(r => num(r[p.key]) !== null) && !(p.key === "power" && port === "D"));
@@ -271,6 +286,13 @@
     });
     g.font = "10px sans-serif"; g.textAlign = "left"; g.textBaseline = "alphabetic";
     let lx2 = left;
+    if (opts.toggle) {
+      const txt = last5() ? "최근 5분" : "전체", cw = g.measureText(txt).width + 12;
+      canvas._chip = [2, h - 15, cw, 14];
+      g.strokeStyle = "rgba(128,128,128,.8)"; g.lineWidth = 1; g.strokeRect(2.5, h - 14.5, cw, 13);
+      g.fillStyle = fg; g.fillText(txt, 8, h - 4);
+      lx2 = 2 + cw + 8;
+    }
     for (const [col, txt, dash] of [["rgba(237,137,54,.9)", "시작·끝", 0], ["rgba(47,133,90,.95)", "증착시작", 1], ["rgba(197,48,48,.8)", "리셋", 0], ["rgba(47,133,90,.95)", "▶장비Start ■Stop", 2]]) {
       g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 1.4; g.setLineDash(dash === 1 ? [3, 2] : []);
       if (dash !== 2) { g.beginPath(); g.moveTo(lx2, h - 11); g.lineTo(lx2, h - 2); g.stroke(); lx2 += 4; }
@@ -422,7 +444,7 @@
       const label = root.querySelector(`[data-thickstatus][data-i="${i}"]`) || (box && box.querySelector("[data-thickstatus]")) || (box && box.parentElement && box.parentElement.querySelector("[data-thickstatus]")) || canvas.closest("section,article,.card,.layer")?.querySelector("[data-thickstatus]") || null;
       const r = await serve(l, i, nextPre, ctx, label);
       if (!r) continue;
-      drawChart(canvas, thin(r.hit.rows), r.t0, Math.max(r.t1, r.t0 + 1000), l.started_ms, l.ended_ms, l.sensor_port, {detMs: r.merged.det_ms, title: chartTitle(l.sensor_port, r.hit.rows, l.material)});
+      drawChart(canvas, thin(r.hit.rows), r.t0, Math.max(r.t1, r.t0 + 1000), l.started_ms, l.ended_ms, l.sensor_port, {toggle: true, detMs: r.merged.det_ms, title: chartTitle(l.sensor_port, r.hit.rows, l.material)});
       updateLive(box, r.merged, r.hit.rows, r.running, r.out, r.now);
     }
   }
@@ -484,7 +506,7 @@
     const l0 = allLayers[idx[0]];
     const t0 = Math.min(...ok.map(o => o.r.t0)), t1 = Math.max(...ok.map(o => o.r.t1));
     const series = ok.map(o => ({name: `${o.l.material || "?"} · ${o.l.sensor_port}`, color: MEMBER_COLORS[o.k % MEMBER_COLORS.length], rows: thin(o.r.hit.rows)}));
-    drawChart(canvas, [], t0, Math.max(t1, t0 + 1000), l0.started_ms, l0.ended_ms, l0.sensor_port, {series, panels: ["thk_med", "rate_fit"], detMs: ok[0].r.merged.det_ms, title: idx.map(j => allLayers[j].material || "?").join(":")});
+    drawChart(canvas, [], t0, Math.max(t1, t0 + 1000), l0.started_ms, l0.ended_ms, l0.sensor_port, {toggle: true, series, panels: ["thk_med", "rate_fit"], detMs: ok[0].r.merged.det_ms, title: idx.map(j => allLayers[j].material || "?").join(":")});
     const parts = idx.map((j, k) => {
       const r = rs[k];
       return r ? {...liveParts(r.merged, r.hit.rows, r.running, r.out), l: r.merged} : null;
