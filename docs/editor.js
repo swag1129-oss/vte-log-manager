@@ -165,7 +165,7 @@
     function persist() {
       // Any edit makes the last save stale, so the confirmation goes away with it.
       if (draft) draft.dirty = true;
-      $("#editorSaved").textContent = "";
+      showSaved("");
       $("#draftState").textContent = "저장 중…";
       clearTimeout(saveTimer);
       saveTimer = setTimeout(async () => {
@@ -479,7 +479,15 @@
             </div>`;
     }
     // Thickness-monitor sensor choice (A-D) per layer; shown only when a monitor server is configured.
-    const thickSelect = (l, i) => !Thick.enabled() ? "" : `<div class="thick-row"><label>두께 센서<select data-i="${i}" data-k="sensor_port">${["", ...Thick.SENSORS].map(p => `<option ${p === (l.sensor_port || "") ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>${l.sensor_port ? '<span class="thick-status" data-thickstatus></span>' : ""}<div class="thick-warn" data-thickwarn="${blockOf(i).join(",")}"></div></div>`;
+    let savedTimer = null;
+    function showSaved(text) {
+      const el = $("#editorSaved");
+      clearTimeout(savedTimer);
+      el.textContent = text;
+      if (text) savedTimer = setTimeout(() => { el.textContent = ""; }, 4000);
+    }
+    $("#editorSaved").addEventListener("click", () => showSaved(""));
+    const thickSelect = (l, i) => !Thick.enabled() ? "" : `<div class="thick-row"><label>두께 센서<select data-i="${i}" data-k="sensor_port">${["", ...Thick.SENSORS].map(p => `<option ${p === (l.sensor_port || "") ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>${l.sensor_port ? '<span class="thick-status" data-thickstatus data-i="${i}"></span>' : ""}<div class="thick-warn" data-thickwarn="${blockOf(i).join(",")}"></div></div>`;
     const thickExtra = (l, i) => !Thick.enabled() || !l.sensor_port ? "" : `${measureRow(l, i, "thk")}
       <div class="thick-box" data-thickbox data-i="${i}">
         <div class="thick-live">
@@ -687,7 +695,7 @@
     async function uploadDraft(mode = "close") {
       const d = draft;
       const err = msg => { $("#editorError").textContent = msg; };
-      $("#editorSaved").textContent = "";
+      showSaved("");
       if (!/^\d{6}$/.test(d.date)) return err("날짜를 YYMMDD 6자리로 입력해 주세요.");
       const layers = d.layers.filter(l => String(l.material || "").trim());
       if (!layers.length) return err("재료가 입력된 레이어가 하나 이상 필요해요.");
@@ -747,7 +755,7 @@
         const fileName = saved.relPath.split("/").pop();
         status(`저장됨: ${fileName}`);
         // Staying on the recording screen, nothing else on it changes, so say so where the button is.
-        if (mode !== "close") $("#editorSaved").textContent = `저장됨 ${nowText().slice(11)} · ${fileName}`;
+        if (mode !== "close") showSaved(`저장됨 ${nowText().slice(11)} · ${fileName}`);
         const log = app.model.logs.find(l => l.realPath === saved.relPath);
         if (mode === "close" && editing && !inPlace) alert(`새 파일로 저장했어요.\n원래 파일(${editing.relPath.split("/").pop()})은 그대로 있어요.`);
         if (mode !== "close") { renderEditor(); return; }

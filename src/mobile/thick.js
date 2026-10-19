@@ -325,7 +325,7 @@
       const i = Number(canvas.dataset.i);
       const l = ctx.layers()[i];
       const box = canvas.closest("[data-thickbox]");
-      const label = (box && box.querySelector("[data-thickstatus]")) || (box && box.parentElement && box.parentElement.querySelector("[data-thickstatus]")) || canvas.closest("section,article,.card,.layer")?.querySelector("[data-thickstatus]") || null;
+      const label = root.querySelector(`[data-thickstatus][data-i="${i}"]`) || (box && box.querySelector("[data-thickstatus]")) || (box && box.parentElement && box.parentElement.querySelector("[data-thickstatus]")) || canvas.closest("section,article,.card,.layer")?.querySelector("[data-thickstatus]") || null;
       if (!l || !l.sensor_port) continue;
       const now = Date.now();
       const running = l.started_ms && !l.ended_ms;
