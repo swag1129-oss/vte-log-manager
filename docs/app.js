@@ -4,7 +4,7 @@
   const CONFIG = {
     appKey: "5rz8t9p1imu4wa9",
     defaultRoot: "/NEXT LAB/Log/A222/VTE log/VTE_MANAGER",
-    version: "2026-10-26-12f4d09a"
+    version: "2026-10-26-1746a0a6"
   };
   const LS = {author: "vte.author", root: "vte.root"};
   const {fmt, displayDate, calcRequiredMonitor, calcMonitorRate} = VTECore;
@@ -20,7 +20,7 @@
   const rootPath = () => localStorage.getItem(LS.root) || CONFIG.defaultRoot;
 
   function makeClient() {
-    app.client = VTEDropbox.createClient({appKey: CONFIG.appKey, redirectUri: redirectUri(), rootPath: rootPath()});
+    app.client = VTEDropbox.createClient({onRetry: r => badge(`동기화 재시도 중… (${r.attempt}/3)`), appKey: CONFIG.appKey, redirectUri: redirectUri(), rootPath: rootPath()});
   }
   function show(screen) {
     $$(".screen").forEach(s => { s.hidden = s.id !== `screen-${screen}`; });
@@ -40,6 +40,11 @@
     if (tab === "settings") renderSettings();
     if (tab === "record") editor.render();
     show(tab);
+  }
+  function badge(text) {
+    const b = $("#syncBadge");
+    b.textContent = text || "";
+    b.hidden = !text;
   }
   function status(text) { $("#syncStatus").textContent = text; }
 
@@ -61,6 +66,7 @@
     if (app.syncing) return;
     if (!navigator.onLine) { status("오프라인 — 캐시된 데이터 표시 중"); return; }
     app.syncing = true;
+    badge("");
     $("#syncBtn").disabled = true;
     try {
       const res = await VTEStore.sync({
@@ -68,6 +74,7 @@
         onProgress: p => status(p.phase === "list" ? "Dropbox 목록 확인 중…" : `받는 중 ${p.done}/${p.total}`)
       });
       $("#syncError").hidden = true;
+      badge("");
       await loadModel();
       editor.flushQueue();
       if (res.failed.length) status(`동기화 완료 · ${res.failed.length}개 파일 실패`);
@@ -86,13 +93,19 @@
         show("login");
       } else if (/not_found/.test(err.summary || "")) {
         status("Dropbox 폴더를 찾지 못했어요 — 설정에서 경로 확인");
+      } else if (err.network) {
+        badge("오프라인 목록 표시 중 · 탭해서 재시도");
+        app.lastError = `${new Date().toLocaleString("ko-KR")}\n${err.name}: ${err.message}`;
+        console.error(err);
       } else {
         status(`동기화 실패: ${err.message}`);
       }
-      app.lastError = `${new Date().toLocaleString("ko-KR")}\n${err.name}: ${err.message}${err.status ? `\nHTTP ${err.status}` : ""}${err.summary ? `\n${err.summary}` : ""}${err.stack ? `\n${String(err.stack).split("\n").slice(0, 4).join("\n")}` : ""}`;
-      console.error(err);
-      $("#syncError").textContent = `동기화 오류 (이 화면을 캡처해서 보내주세요)\n\n${app.lastError}`;
-      $("#syncError").hidden = false;
+      if (!err.network) {
+        app.lastError = `${new Date().toLocaleString("ko-KR")}\n${err.name}: ${err.message}${err.status ? `\nHTTP ${err.status}` : ""}${err.summary ? `\n${err.summary}` : ""}${err.stack ? `\n${String(err.stack).split("\n").slice(0, 4).join("\n")}` : ""}`;
+        console.error(err);
+        $("#syncError").textContent = `동기화 오류 (이 화면을 캡처해서 보내주세요)\n\n${app.lastError}`;
+        $("#syncError").hidden = false;
+      }
     } finally {
       app.syncing = false;
       $("#syncBtn").disabled = false;
@@ -477,6 +490,7 @@
       status(e.target.checked ? "테스트 폴더에만 저장해요." : "실제 로그 폴더에 저장해요.");
     };
     $("#syncBtn").onclick = runSync;
+    $("#syncBadge").onclick = runSync;
     $("#syncStatus").onclick = () => alert(app.lastError ? `마지막 오류\n\n${app.lastError}` : $("#syncStatus").textContent);
     $$("#tabbar button").forEach(b => { b.onclick = () => setTab(b.dataset.tab); });
     $$("[data-back]").forEach(b => { b.onclick = () => setTab(b.dataset.back); });

@@ -38,7 +38,7 @@
     return trimmed;
   }
 
-  function createClient({appKey, redirectUri, rootPath, fetch: fetchImpl = globalThis.fetch.bind(globalThis), storage = globalThis.localStorage, crypto: cryptoImpl = globalThis.crypto, now = () => Date.now()}) {
+  function createClient({appKey, redirectUri, rootPath, fetch: fetchImpl = globalThis.fetch.bind(globalThis), storage = globalThis.localStorage, crypto: cryptoImpl = globalThis.crypto, now = () => Date.now(), maxConcurrent = 4, maxAttempts = 3, timeoutMs = 30000, backoff = n => 800 * 2 ** (n - 1), onRetry = () => {}}) {
     const rootDisplay = normalizeRoot(rootPath);
     const rootLower = rootDisplay.toLowerCase();
 
@@ -92,34 +92,84 @@
     function isLoggedIn() { return Boolean(readToken()?.refresh); }
     function logout() { storage.removeItem(KEYS.token); }
 
+    let refreshing = null;
     async function accessToken(forceRefresh = false) {
       const t = readToken();
       if (!t?.refresh) throw new DropboxError("Dropbox 로그인이 필요합니다.", {status: 401, summary: "not_logged_in"});
       if (!forceRefresh && t.access && t.expiresAt - 60000 > now()) return t.access;
-      const r = await tokenRequest({grant_type: "refresh_token", refresh_token: t.refresh, client_id: appKey});
-      writeToken({...t, access: r.access_token, expiresAt: now() + (r.expires_in || 14400) * 1000});
-      return r.access_token;
+      if (!refreshing) {
+        refreshing = tokenRequestRetry({grant_type: "refresh_token", refresh_token: t.refresh, client_id: appKey})
+          .then(r => { writeToken({...(readToken() || t), access: r.access_token, expiresAt: now() + (r.expires_in || 14400) * 1000}); return r.access_token; })
+          .finally(() => { refreshing = null; });
+      }
+      return refreshing;
+    }
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const isNetworkError = e => !(e instanceof DropboxError) && (e?.name === "TypeError" || e?.name === "AbortError");
+    async function tokenRequestRetry(form) {
+      for (let attempt = 1; ; attempt++) {
+        try { return await tokenRequest(form); }
+        catch (e) { if (!isNetworkError(e) || attempt >= maxAttempts) throw e; await sleep(backoff(attempt)); }
+      }
+    }
+    // At most `maxConcurrent` Dropbox requests in flight; the rest wait here.
+    let active = 0;
+    const waiters = [];
+    async function acquire() {
+      if (active >= maxConcurrent) await new Promise(r => waiters.push(r));
+      else active++;
+    }
+    function release() { const next = waiters.shift(); if (next) next(); else active--; }
+
+    function netError(url, init, cause, attempts, started) {
+      const endpoint = String(url).replace(/^https:\/\/[^/]+\/2/, "");
+      const timedOut = cause?.name === "AbortError";
+      const e = new DropboxError(`네트워크 오류 (${endpoint}, ${attempts}회 시도, ${Math.round((now() - started) / 1000)}초): ${timedOut ? "시간 초과" : cause?.message || cause}`, {status: 0, summary: "network"});
+      e.name = cause?.name || "TypeError";
+      e.network = true; e.endpoint = endpoint; e.attempts = attempts; e.elapsedMs = now() - started;
+      return e;
+    }
+    async function fetchOnce(url, init, timeout) {
+      const ctl = typeof AbortController === "function" ? new AbortController() : null;
+      const timer = ctl ? setTimeout(() => ctl.abort(), timeout) : null;
+      try { return await fetchImpl(url, ctl ? {...init, signal: ctl.signal} : init); }
+      finally { if (timer) clearTimeout(timer); }
     }
     async function call(url, init, retry = true) {
-      const token = await accessToken();
-      const res = await fetchImpl(url, {...init, headers: {...init.headers, Authorization: `Bearer ${token}`}});
-      if (res.status === 401 && retry) {
-        await accessToken(true);
-        return call(url, init, false);
-      }
-      if (res.status === 429 && retry) {
-        const wait = Number(res.headers?.get?.("Retry-After") || 2);
-        await new Promise(r => setTimeout(r, Math.min(wait, 30) * 1000));
-        return call(url, init, false);
-      }
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        let summary = text;
-        try { summary = JSON.parse(text).error_summary || text; } catch {}
-        const message = /not_found/.test(summary) ? `Dropbox에서 경로를 찾을 수 없습니다: ${summary}` : `Dropbox 요청 실패 (${res.status}): ${summary}`;
-        throw new DropboxError(message, {status: res.status, summary});
-      }
-      return res;
+      const started = now();
+      await acquire();
+      try {
+        let attempts = 0, refreshed = false, throttled = false;
+        for (;;) {
+          const token = await accessToken();
+          attempts++;
+          let res;
+          try {
+            res = await fetchOnce(url, {...init, headers: {...init.headers, Authorization: `Bearer ${token}`}}, init.timeoutMs || timeoutMs);
+          } catch (e) {
+            if (!isNetworkError(e)) throw e;
+            if (attempts >= maxAttempts) throw netError(url, init, e, attempts, started);
+            onRetry({endpoint: url, attempt: attempts, error: e});
+            await sleep(backoff(attempts));
+            continue;
+          }
+          if (res.status === 401 && retry && !refreshed) { refreshed = true; await accessToken(true); continue; }
+          if (res.status === 429 && retry && !throttled) {
+            throttled = true;
+            await sleep(Math.min(Number(res.headers?.get?.("Retry-After") || 2), 30) * 1000);
+            continue;
+          }
+          if (res.status >= 500 && attempts < maxAttempts) { onRetry({endpoint: url, attempt: attempts, status: res.status}); await sleep(backoff(attempts)); continue; }
+          if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            let summary = text;
+            try { summary = JSON.parse(text).error_summary || text; } catch {}
+            const message = /not_found/.test(summary) ? `Dropbox에서 경로를 찾을 수 없습니다: ${summary}` : `Dropbox 요청 실패 (${res.status}): ${summary}`;
+            throw new DropboxError(message, {status: res.status, summary});
+          }
+          return res;
+        }
+      } finally { release(); }
     }
     async function rpc(endpoint, args) {
       const res = await call(`${API}${endpoint}`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(args)});
@@ -129,7 +179,7 @@
     // All .xlsx files under the root: [{relPath, name, pathLower, rev, contentHash, size, modified}].
     async function listFiles() {
       const out = [];
-      let page = await rpc("/files/list_folder", {path: guard(rootDisplay), recursive: true, include_deleted: false, limit: 2000});
+      let page = await rpc("/files/list_folder", {path: guard(rootDisplay), recursive: true, include_deleted: false, limit: 500});
       for (;;) {
         for (const e of page.entries) {
           if (e[".tag"] !== "file" || !/\.xlsx$/i.test(e.name)) continue;
