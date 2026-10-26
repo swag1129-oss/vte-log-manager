@@ -241,6 +241,7 @@ input, select, textarea { font-size: 16px; }
 .co-rates { font-size: 13px; font-variant-numeric: tabular-nums; opacity: .9; }
 .co-dope { font-size: 20px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
 .co-inst { font-size: 12px; opacity: .7; }
+.thick-temp { font-size: 12px; opacity: .85; margin: 2px 0; }
 .thick-note { font-size: 12px; margin: 6px 0 2px; opacity: .85; }
 .thick-note .warn { color: #c53030; }
 .thick-warn { flex-basis: 100%; font-size: 12px; color: #c05621; font-weight: 600; }

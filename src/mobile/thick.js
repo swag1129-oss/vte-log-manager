@@ -73,6 +73,12 @@
     const j = await getJson(`/range?port=${encodeURIComponent(port)}&from=${Math.floor(fromMs / 1000)}&to=${Math.ceil(toMs / 1000)}`, ms);
     return j ? (j.rows || []) : null;
   }
+  // Source thermocouple controllers (TK4S) exist for O-n only; M-n has no temperature.
+  const tempSource = l => { const m = /^O-\d$/.exec(String((l && l.port) || "").trim().toUpperCase()); return m ? m[0] : null; };
+  async function tempRange(source, fromMs, toMs, ms = 8000) {
+    const j = await getJson(`/temp_range?source=${encodeURIComponent(source)}&from=${Math.floor(fromMs / 1000)}&to=${Math.ceil(toMs / 1000)}`, ms);
+    return j ? (j.rows || []) : null;
+  }
   const num = v => (v === null || v === undefined || Number.isNaN(Number(v)) ? null : Number(v));
   // Values for the form: thickness (5 s median) in nm, rate_fit (adaptive 10-60 s slope of it) in Å/s, power in %. Raw RS232 `rate` is never used for autofill.
   async function snapshot(port) {
@@ -91,8 +97,11 @@
   const PANELS = [
     {key: "thk_med", label: "두께", unit: "nm", color: "#2b6cb0", slope: true, zero: 0.3},
     {key: "rate_fit", label: "레이트", unit: "Å/s", color: "#c05621", dots: "rate", zero: 1},
-    {key: "power", label: "파워", unit: "%", color: "#2f855a", zero: 1}
+    {key: "power", label: "파워", unit: "%", color: "#2f855a", zero: 1},
+    {key: "temp", label: "온도", unit: "°C", color: "#b83280", zero: 0}
   ];
+  const TEMP_KEY = "vte.chart.temp";
+  const tempOn = () => { try { return localStorage.getItem(TEMP_KEY) === "1"; } catch (e) { return false; } };
   const hm = ms => new Date(ms).toTimeString().slice(0, 5);
   function niceStep(span, n) {
     const raw = span / n, p = 10 ** Math.floor(Math.log10(raw)), m = raw / p;
@@ -108,9 +117,10 @@
       if (!canvas._chipBound && canvas.addEventListener) {
         canvas._chipBound = true;
         canvas.addEventListener("click", e => {
-          const c = canvas._chip, r = canvas.getBoundingClientRect();
-          if (!c || e.clientX - r.left < c[0] || e.clientX - r.left > c[0] + c[2] || e.clientY - r.top < c[1] || e.clientY - r.top > c[1] + c[3]) return;
-          try { localStorage.setItem(LAST5_KEY, last5() ? "0" : "1"); } catch (err) { /* ignore */ }
+          const r = canvas.getBoundingClientRect(), hit = c => c && e.clientX - r.left >= c[0] && e.clientX - r.left <= c[0] + c[2] && e.clientY - r.top >= c[1] && e.clientY - r.top <= c[1] + c[3];
+          if (hit(canvas._chip)) { try { localStorage.setItem(LAST5_KEY, last5() ? "0" : "1"); } catch (err) { /* ignore */ } }
+          else if (hit(canvas._chipT)) { try { localStorage.setItem(TEMP_KEY, tempOn() ? "0" : "1"); } catch (err) { /* ignore */ } }
+          else return;
           for (const cv of document.querySelectorAll("canvas")) if (cv._args && cv._chipBound) drawChart(cv, ...cv._args);
         });
       }
@@ -118,8 +128,10 @@
     }
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth || 300;
-    const wanted = opts.panels ? PANELS.filter(p => opts.panels.includes(p.key)) : PANELS.filter(p => rows.some(r => num(r[p.key]) !== null) && !(p.key === "power" && port === "D"));
+    const hasTemp = Boolean(opts.temps && opts.temps.length);
+    const wanted = opts.panels ? PANELS.filter(p => opts.panels.includes(p.key)) : PANELS.filter(p => p.key !== "temp" && rows.some(r => num(r[p.key]) !== null) && !(p.key === "power" && port === "D"));
     const show = wanted.length ? wanted : PANELS.slice(0, 2);
+    if (hasTemp && tempOn()) show.push(PANELS[3]);
     const ph = opts.height || 92, titleH = 18, gap = 26, top = titleH;
     const h = top + show.length * (ph + gap) - gap + 22 + 14;
     canvas.width = w * dpr;
@@ -147,7 +159,7 @@
     g.font = "11px sans-serif";
     show.forEach((p, k) => {
       const y0 = top + k * (ph + gap);
-      const sers = SER.map(s => ({...s, pts: s.rows.map(r => [r.ts * 1000, num(r[p.key])]).filter(q => q[1] !== null && q[0] >= t0)}));
+      const sers = p.key === "temp" ? [{color: null, pts: opts.temps.map(r => [r.ts * 1000, r.ok === false ? null : num(r.pv)]).filter(q => q[1] !== null && q[0] >= t0 && q[0] <= t1)}] : SER.map(s => ({...s, pts: s.rows.map(r => [r.ts * 1000, num(r[p.key])]).filter(q => q[1] !== null && q[0] >= t0)}));
       const pts = multi ? sers.flatMap(s => s.pts) : sers[0].pts;
       const dots = !multi && p.dots && port !== "D" ? rows.map(r => [r.ts * 1000, num(r[p.dots])]).filter(q => q[1] !== null && q[0] >= t0) : [];
       let lo = pts.length ? Math.min(...pts.map(q => q[1])) : 0, hi = pts.length ? Math.max(...pts.map(q => q[1])) : 1;
@@ -292,6 +304,14 @@
       g.strokeStyle = "rgba(128,128,128,.8)"; g.lineWidth = 1; g.strokeRect(2.5, h - 14.5, cw, 13);
       g.fillStyle = fg; g.fillText(txt, 8, h - 4);
       lx2 = 2 + cw + 8;
+      canvas._chipT = null;
+      if (hasTemp) {
+        const on = tempOn(), tw2 = g.measureText("온도").width + 12;
+        canvas._chipT = [lx2, h - 15, tw2, 14];
+        g.strokeStyle = on ? "#b83280" : "rgba(128,128,128,.8)"; g.strokeRect(lx2 + .5, h - 14.5, tw2, 13);
+        g.fillStyle = on ? "#b83280" : fg; g.fillText("온도", lx2 + 6, h - 4);
+        lx2 += tw2 + 8;
+      }
     }
     for (const [col, txt, dash] of [["rgba(237,137,54,.9)", "시작·끝", 0], ["rgba(47,133,90,.95)", "증착시작", 1], ["rgba(197,48,48,.8)", "리셋", 0], ["rgba(47,133,90,.95)", "▶장비Start ■Stop", 2]]) {
       g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 1.4; g.setLineDash(dash === 1 ? [3, 2] : []);
@@ -332,11 +352,17 @@
     for (const r of rows) if (r.flag === "stop" && r.ts * 1000 > floor && r.ts * 1000 <= now + 5000) { best = r; break; }
     return best ? Math.round(best.ts * 1000) : null;
   }
+  // Nearest good temperature reading within 30 s of `ms`; null if none (e.g. M-source, server down).
+  function tempAt(temps, ms) {
+    let best = null, bd = 30000;
+    for (const r of temps || []) { const d = Math.abs(r.ts * 1000 - ms); if (d <= bd && r.ok !== false && num(r.pv) !== null) { best = num(r.pv); bd = d; } }
+    return best;
+  }
   const mmss = sec => `${Math.floor(sec / 60)}:${String(Math.max(0, Math.round(sec % 60))).padStart(2, "0")}`;
 
   // Everything the page does with a running or finished layer, from one server fetch: chart, big numbers, delayed start/end values, start detection, heat check, one-touch result.
   // ctx: {layers(): draft layers, set(i, patch)}
-  function analyze(l, i, rows, now, ctx) {
+  function analyze(l, i, rows, now, ctx, temps = []) {
     const out = {};
     const patch = {};
     const startMs = l.started_ms, endMs = l.ended_ms;
@@ -345,6 +371,8 @@
       if (num(l.start_thk) !== 0) patch.start_thk = "0";
       if (l.sensor_port && ctx.zeroTarget) ctx.zeroTarget(i);
     }
+    if (startMs && !l.start_temp) { const t = tempAt(temps, startMs); if (t !== null) patch.start_temp = fmtNum(t, 1); }
+    if (endMs && !l.end_temp) { const t = tempAt(temps, endMs); if (t !== null) patch.end_temp = fmtNum(t, 1); }
     if (startMs && (l.start_pending || !l.start_thk)) {
       const t = rowAt(rows, startMs, "thk_med"), r = rowAt(rows, startMs, "rate_fit", 120000);
       if (t && !l.start_thk && !patch.start_thk) patch.start_thk = fmtNum(zeroEvent(rows, startMs) ? 0 : t.thk_med, 2);
@@ -368,7 +396,7 @@
       const hit = Core.detectStart(rows.filter(r => r.ts >= startMs / 1000 && (!endMs || r.ts <= endMs / 1000)));
       if (hit) {
         const row = rows.find(r => r.ts === hit.start);
-        Object.assign(patch, {det_ms: Math.round(hit.start * 1000), det_power: l.det_power || l.start_power || (l.sensor_port !== "D" && row && num(row.power) !== null ? fmtNum(row.power, 1) : ""), det_temp: l.det_temp || l.start_temp || ""});
+        Object.assign(patch, {det_ms: Math.round(hit.start * 1000), det_power: l.det_power || l.start_power || (l.sensor_port !== "D" && row && num(row.power) !== null ? fmtNum(row.power, 1) : ""), det_temp: l.det_temp || (tempAt(temps, hit.start * 1000) !== null ? fmtNum(tempAt(temps, hit.start * 1000), 1) : "") || l.start_temp || ""});
       }
     }
     if (endMs && !l.heat && merged.end_thk) {
@@ -444,8 +472,8 @@
       const label = root.querySelector(`[data-thickstatus][data-i="${i}"]`) || (box && box.querySelector("[data-thickstatus]")) || (box && box.parentElement && box.parentElement.querySelector("[data-thickstatus]")) || canvas.closest("section,article,.card,.layer")?.querySelector("[data-thickstatus]") || null;
       const r = await serve(l, i, nextPre, ctx, label);
       if (!r) continue;
-      drawChart(canvas, thin(r.hit.rows), r.t0, Math.max(r.t1, r.t0 + 1000), l.started_ms, l.ended_ms, l.sensor_port, {toggle: true, detMs: r.merged.det_ms, title: chartTitle(l.sensor_port, r.hit.rows, l.material)});
-      updateLive(box, r.merged, r.hit.rows, r.running, r.out, r.now);
+      drawChart(canvas, thin(r.hit.rows), r.t0, Math.max(r.t1, r.t0 + 1000), l.started_ms, l.ended_ms, l.sensor_port, {toggle: true, temps: tempSource(l) ? r.hit.temps : null, detMs: r.merged.det_ms, title: chartTitle(l.sensor_port, r.hit.rows, l.material)});
+      updateLive(box, r.merged, r.hit.rows, r.running, r.out, r.now, tempSource(l) ? r.hit.temps : null);
     }
   }
   const thin = rows => (rows.length > 3000 ? rows.filter((r, k) => k % Math.ceil(rows.length / 3000) === 0 || r.flag || k === rows.length - 1) : rows);
@@ -461,7 +489,7 @@
     if (pre && !nextPre.has(i)) { if (label) label.textContent = "시작 전"; return null; }
     const id = pre ? `${l.sensor_port}|pre` : `${l.sensor_port}|${t0}|${l.ended_ms || ""}`;
     let hit = cache.get(id);
-    if (!hit) { hit = {rows: [], lastTs: 0, okAt: 0, nextAt: 0, fails: 0, busy: false, full: false, done: false}; cache.set(id, hit); }
+    if (!hit) { hit = {rows: [], temps: [], tLast: 0, tFull: false, lastTs: 0, okAt: 0, nextAt: 0, fails: 0, busy: false, full: false, done: false}; cache.set(id, hit); }
     if (!hit.done && !hit.busy && now >= hit.nextAt) {
       hit.busy = true;
       try {
@@ -471,6 +499,16 @@
           else { for (const r of rows) if (r.ts > hit.lastTs) hit.rows.push(r); }
           if (pre) { const cut = (now - 200000) / 1000; if (hit.rows.length && hit.rows[0].ts < cut) hit.rows = hit.rows.filter(r => r.ts >= cut); }
           if (hit.rows.length) hit.lastTs = hit.rows[hit.rows.length - 1].ts;
+          const ts = tempSource(l);
+          if (ts) {
+            const tr = await tempRange(ts, hit.tFull ? hit.tLast * 1000 : t0, t1 + 2000);
+            if (tr) {
+              if (!hit.tFull) hit.temps = tr; else for (const r of tr) if (r.ts > hit.tLast) hit.temps.push(r);
+              if (pre) { const cut = (now - 200000) / 1000; if (hit.temps.length && hit.temps[0].ts < cut) hit.temps = hit.temps.filter(r => r.ts >= cut); }
+              if (hit.temps.length) hit.tLast = hit.temps[hit.temps.length - 1].ts;
+              hit.tFull = true;
+            }
+          }
           hit.full = true; hit.fails = 0; hit.okAt = Date.now(); hit.nextAt = hit.okAt + 1800;
           if (settled) hit.done = true;
         } else { hit.fails++; hit.nextAt = Date.now() + Math.min(5000, 1000 * hit.fails); }
@@ -485,7 +523,7 @@
       const ev = findAutoStop(l, hit.rows, now);
       if (ev) { ctx.autoEnd(i, ev); return null; }
     }
-    const {patch, out, merged} = analyze(l, i, hit.rows, now, ctx);
+    const {patch, out, merged} = analyze(l, i, hit.rows, now, ctx, hit.temps);
     if (Object.keys(patch).length) ctx.set(i, patch);
     const age = Math.max(0, Math.round((Date.now() - hit.okAt) / 1000));
     if (label) {
@@ -550,7 +588,7 @@
     if (spikes) notes.push(`스파이크 ${spikes}점 제외`);
     return {rate, layerThk, notes, warns};
   }
-  function updateLive(box, l, rows, running, out, now) {
+  function updateLive(box, l, rows, running, out, now, temps) {
     if (!box) return;
     const set = (k, v) => { const el = box.querySelector(`[data-live="${k}"]`); if (el && el.textContent !== v) el.textContent = v; };
     const {rate, notes, layerThk: rawThk} = liveParts(l, rows, running, out);
@@ -565,6 +603,9 @@
     }
     set("eta", eta);
     set("note", notes.join(" · "));
+    const lt = temps && temps.length ? temps[temps.length - 1] : null;
+    const el = box.querySelector('[data-live="temp"]');
+    if (el) el.textContent = lt && lt.ok !== false && num(lt.pv) !== null && Date.now() - lt.ts * 1000 < 15000 ? `지금 ${fmtNum(num(lt.pv), 1)} °C` : "";
   }
   function watch(ctx, active) {
     clearInterval(timer);
@@ -613,5 +654,5 @@
     return rows.filter((r, i) => i % step === 0 || r.flag);
   }
 
-  root.VTEThick = {findAutoStart, findAutoStop, zeroEvent, SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
+  root.VTEThick = {findAutoStart, findAutoStop, zeroEvent, SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, tempAt, tempSource, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
 })(typeof globalThis !== "undefined" ? globalThis : this);

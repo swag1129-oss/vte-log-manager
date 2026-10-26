@@ -523,6 +523,7 @@
           <div><b data-live="eta">–</b><small>목표까지</small></div>
         </div>
         <div class="thick-note" data-live="note"></div>
+        ${/^O-\d$/i.test(String(l.port || "").trim()) ? '<div class="thick-temp" data-live="temp"></div>' : ""}
         <canvas class="thick-chart" data-thickchart data-i="${i}"></canvas>
       </div>`;
     const codepChart = members => {
