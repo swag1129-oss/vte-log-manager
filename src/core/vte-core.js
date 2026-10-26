@@ -817,8 +817,8 @@
       l.heat === "1" ? "suspect" : l.heat === "0" ? "ok" : "", l.heat_delta || "", l.started_ms || "", l.ended_ms || "", l.codep_cv || ""];
   }
   function thickSeriesRows(l, i, rows) {
-    const d = l.sensor_port === "D";
-    return (rows || []).map(r => [i + 1, l.sensor_port, new Date(r.ts * 1000).toTimeString().slice(0, 8), Math.round(r.ts * 10) / 10, r.thk_med ?? null, r.rate_fit ?? null, d ? "" : r.rate ?? null, d ? "" : r.power ?? null, r.flag || ""]);
+    const d = l.sensor_port === "D", m861 = r => String(r.model) === "861";
+    return (rows || []).map(r => [i + 1, l.sensor_port, new Date(r.ts * 1000).toTimeString().slice(0, 8), Math.round(r.ts * 10) / 10, r.thk_med ?? null, r.rate_fit ?? null, m861(r) || d ? "" : r.rate ?? null, m861(r) || !d ? r.power ?? null : "", r.flag || ""]);
   }
   // Merge new summary/series rows into an existing ThickMon sheet. Old rows are never dropped: series are unioned by sensor + second,
   // old summary rows survive unless the new one describes the same sensor and start. Unparseable old sheets are returned unchanged.

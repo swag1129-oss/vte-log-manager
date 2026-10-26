@@ -1141,7 +1141,7 @@
               else Object.assign(l, {mon_diff: "", avg_rate: "", heat: "", heat_delta: ""});
               l[`${when}_thk`] = s.thk === null || s.thk === undefined ? "" : Thick.fmtNum(s.thk, 2);
               l[`${when}_rate`] = s.rate === null || s.rate === undefined ? "" : Thick.fmtNum(s.rate, 3);
-              if (s.power !== null && s.power !== undefined) l[`${when}_power`] = Thick.fmtNum(s.power, 1);
+              if (s.power !== null && s.power !== undefined && !l[`${when}_power`]) l[`${when}_power`] = Thick.fmtNum(s.power, 1);
               if (act === "start" && l.sensor_port && s.thk !== null && s.thk !== undefined) Thick.setTarget(l.sensor_port, l.material, Core.toFloat(l.monitor), s.thk, draft.createdAt);
               if (act === "end" && l.sensor_port) Thick.clearTarget(l.sensor_port, l.material);
               l[`${when}_pending`] = l[`${when}_thk`] && l[`${when}_rate`] ? "" : "1";

@@ -86,10 +86,12 @@
     if (!lp) lp = await live();
     const p = lp?.[port];
     if (!p || !p.ok) return null;
-    // Port D power is a manual knob (always 0 on the wire): never autofill it.
-    return {thk: num(p.thk_med ?? p.thk_nm), rate: num(p.rate_fit), power: port === "D" ? null : num(p.power)};
+    // 861 reports the source power (%) on the wire; 0 means the source is not wired to it (or off), so it is never autofilled. Other models: power is a manual knob.
+    return {thk: num(p.thk_med ?? p.thk_nm), rate: num(p.rate_fit), power: is861(p) && num(p.power) > 0 ? num(p.power) : null};
   }
 
+  const is861 = r => Boolean(r) && String(r.model) === "861";
+  const hasPower861 = rows => rows.some(r => is861(r) && num(r.power) > 0);
   const fmtNum = (v, d) => (v === null || v === undefined ? "" : String(Math.round(v * 10 ** d) / 10 ** d));
   const hms = ms => new Date(ms).toTimeString().slice(0, 8);
 
@@ -129,7 +131,7 @@
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth || 300;
     const hasTemp = Boolean(opts.temps && opts.temps.length);
-    const wanted = opts.panels ? PANELS.filter(p => opts.panels.includes(p.key)) : PANELS.filter(p => p.key !== "temp" && rows.some(r => num(r[p.key]) !== null) && !(p.key === "power" && port === "D"));
+    const wanted = opts.panels ? PANELS.filter(p => opts.panels.includes(p.key)) : PANELS.filter(p => p.key !== "temp" && rows.some(r => num(r[p.key]) !== null) && !(p.key === "power" && (port === "D" && !rows.some(is861) || rows.some(is861) && !hasPower861(rows))));
     const show = wanted.length ? wanted : PANELS.slice(0, 2);
     if (hasTemp && tempOn()) show.push(PANELS[3]);
     const ph = opts.height || 92, titleH = 18, gap = 26, top = titleH;
@@ -161,7 +163,7 @@
       const y0 = top + k * (ph + gap);
       const sers = p.key === "temp" ? [{color: null, pts: opts.temps.map(r => [r.ts * 1000, r.ok === false ? null : num(r.pv)]).filter(q => q[1] !== null && q[0] >= t0 && q[0] <= t1)}] : SER.map(s => ({...s, pts: s.rows.map(r => [r.ts * 1000, num(r[p.key])]).filter(q => q[1] !== null && q[0] >= t0)}));
       const pts = multi ? sers.flatMap(s => s.pts) : sers[0].pts;
-      const dots = !multi && p.dots && port !== "D" ? rows.map(r => [r.ts * 1000, num(r[p.dots])]).filter(q => q[1] !== null && q[0] >= t0) : [];
+      const dots = !multi && p.dots && port !== "D" && !is861(rows[rows.length - 1]) ? rows.map(r => [r.ts * 1000, num(r[p.dots])]).filter(q => q[1] !== null && q[0] >= t0) : [];
       let lo = pts.length ? Math.min(...pts.map(q => q[1])) : 0, hi = pts.length ? Math.max(...pts.map(q => q[1])) : 1;
       if (hi - lo < 1e-9) { lo -= 0.5; hi += 0.5; }
       if (lo > 0 && lo < hi * p.zero) lo = 0;
@@ -396,7 +398,7 @@
       const hit = Core.detectStart(rows.filter(r => r.ts >= startMs / 1000 && (!endMs || r.ts <= endMs / 1000)));
       if (hit) {
         const row = rows.find(r => r.ts === hit.start);
-        Object.assign(patch, {det_ms: Math.round(hit.start * 1000), det_power: l.det_power || l.start_power || (l.sensor_port !== "D" && row && num(row.power) !== null ? fmtNum(row.power, 1) : ""), det_temp: l.det_temp || (tempAt(temps, hit.start * 1000) !== null ? fmtNum(tempAt(temps, hit.start * 1000), 1) : "") || l.start_temp || ""});
+        Object.assign(patch, {det_ms: Math.round(hit.start * 1000), det_power: l.det_power || l.start_power || (row && is861(row) && num(row.power) > 0 ? fmtNum(row.power, 1) : ""), det_temp: l.det_temp || (tempAt(temps, hit.start * 1000) !== null ? fmtNum(tempAt(temps, hit.start * 1000), 1) : "") || l.start_temp || ""});
       }
     }
     if (endMs && !l.heat && merged.end_thk) {
@@ -544,7 +546,7 @@
     const l0 = allLayers[idx[0]];
     const t0 = Math.min(...ok.map(o => o.r.t0)), t1 = Math.max(...ok.map(o => o.r.t1));
     const series = ok.map(o => ({name: `${o.l.material || "?"} · ${o.l.sensor_port}`, color: MEMBER_COLORS[o.k % MEMBER_COLORS.length], rows: thin(o.r.hit.rows)}));
-    drawChart(canvas, [], t0, Math.max(t1, t0 + 1000), l0.started_ms, l0.ended_ms, l0.sensor_port, {toggle: true, series, panels: ["thk_med", "rate_fit"], detMs: ok[0].r.merged.det_ms, title: idx.map(j => allLayers[j].material || "?").join(":")});
+    drawChart(canvas, [], t0, Math.max(t1, t0 + 1000), l0.started_ms, l0.ended_ms, l0.sensor_port, {toggle: true, series, panels: ["thk_med", "rate_fit", ...(ok.some(o => hasPower861(o.r.hit.rows)) ? ["power"] : [])], detMs: ok[0].r.merged.det_ms, title: idx.map(j => allLayers[j].material || "?").join(":")});
     const parts = idx.map((j, k) => {
       const r = rs[k];
       return r ? {...liveParts(r.merged, r.hit.rows, r.running, r.out), l: r.merged} : null;
