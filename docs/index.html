@@ -133,6 +133,11 @@
       <datalist id="materialOptions"></datalist>
     </section>
 
+    <section class="screen" id="screen-chamber" hidden>
+      <div class="card" id="chVac"></div>
+      <div class="card" id="chTemp"></div>
+    </section>
+
     <!-- Calibration -->
     <section class="screen" id="screen-cal" hidden>
       <div class="filters">
@@ -176,6 +181,13 @@
         <p class="hint" id="thickInfo">서버 주소를 넣으면 기록 화면에서 층마다 센서(A~D)를 골라 시작·끝 값을 자동으로 채우고 그래프를 보여요. 연결이 안 돼도 수동 입력은 그대로 돼요.</p>
       </div>
       <div class="card">
+        <h2>챔버 기준값</h2>
+        <div class="grid2">
+          <label>진공 기준 (Torr)<input id="chLimP" inputmode="decimal" placeholder="1e-6"></label>
+          <label>소스 온도 기준 (°C)<input id="chLimT" inputmode="decimal" placeholder="40"></label>
+        </div>
+      </div>
+      <div class="card">
         <h2>캐시</h2>
         <p id="cacheInfo"></p>
         <div class="row">
@@ -190,6 +202,7 @@
   <nav class="tabbar" id="tabbar" hidden>
     <button data-tab="logs" class="active">로그</button>
     <button data-tab="record">기록</button>
+    <button data-tab="chamber">챔버</button>
     <button data-tab="cal">Calibration</button>
     <button data-tab="settings">설정</button>
   </nav>
@@ -201,6 +214,7 @@
   <script src="store.js"></script>
   <script src="stack.js"></script>
   <script src="thick.js"></script>
+  <script src="chamber.js"></script>
   <script src="editor.js"></script>
   <script src="app.js"></script>
 </body>

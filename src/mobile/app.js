@@ -24,7 +24,7 @@
   }
   function show(screen) {
     $$(".screen").forEach(s => { s.hidden = s.id !== `screen-${screen}`; });
-    const main = ["logs", "log-detail", "record", "cal", "cal-detail", "settings"].includes(screen);
+    const main = ["logs", "log-detail", "record", "chamber", "cal", "cal-detail", "settings"].includes(screen);
     $("#tabbar").hidden = !main;
     $("#syncBtn").hidden = !main;
     $("#structurePanel").hidden = !((screen === "record" && editor?.hasDraft()) || screen === "log-detail");
@@ -33,6 +33,7 @@
   }
   function setTab(tab) {
     app.tab = tab;
+    if (tab === "chamber") VTEChamber.start(() => app.store.get("draft")); else VTEChamber.stop();
     $$("#tabbar button").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
     if (tab === "logs") renderLogs();
     if (tab === "cal") renderMaterials();
@@ -409,6 +410,8 @@
     $("#rootInput").value = rootPath();
     $("#testModeToggle").checked = localStorage.getItem("vte.testMode") === "1";
     $("#thickUrl").value = localStorage.getItem(VTEThick.KEY) || "";
+    $("#chLimP").value = localStorage.getItem(VTEChamber.KP) || "";
+    $("#chLimT").value = localStorage.getItem(VTEChamber.KT) || "";
     const last = await app.store.get("lastSync");
     $("#cacheInfo").textContent = last
       ? `파일 ${last.files}개 · 마지막 동기화 ${new Date(last.at).toLocaleString("ko-KR")}${last.failed?.length ? ` · 실패 ${last.failed.length}개` : ""}`
@@ -418,6 +421,9 @@
 
   // ---------- start ----------
   function bind() {
+    for (const [id, k] of [["#chLimP", VTEChamber.KP], ["#chLimT", VTEChamber.KT]]) {
+      $(id).onchange = () => { const v = Number($(id).value); if (v > 0) localStorage.setItem(k, String(v)); else { localStorage.removeItem(k); $(id).value = ""; } };
+    }
     $("#thickForm").onsubmit = async e => {
       e.preventDefault();
       const v = $("#thickUrl").value.trim().replace(/\/+$/, "");

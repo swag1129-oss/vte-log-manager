@@ -1,7 +1,7 @@
 // App shell cache. Shell files are fetched with cache: "reload" so GitHub Pages' 10-minute HTTP cache cannot put old files under a new version.
 // Dropbox API calls are never cached; log data lives in IndexedDB.
-const CACHE = "vte-shell-2026-10-26-04e2d438";
-const SHELL = ["./","index.html","styles.css","app.js","data.js","dropbox.js","store.js","stack.js","thick.js","editor.js","manifest.webmanifest","icons/icon-192.png","icons/icon-512.png","icons/icon-512-maskable.png","icons/apple-touch-icon.png","vte-core.js","xlsx.full.min.js"];
+const CACHE = "vte-shell-2026-10-26-12f4d09a";
+const SHELL = ["./","index.html","styles.css","app.js","data.js","dropbox.js","store.js","stack.js","thick.js","chamber.js","editor.js","manifest.webmanifest","icons/icon-192.png","icons/icon-512.png","icons/icon-512-maskable.png","icons/apple-touch-icon.png","vte-core.js","xlsx.full.min.js"];
 
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL.map(u => new Request(u, {cache: "reload"})))).then(() => self.skipWaiting()));

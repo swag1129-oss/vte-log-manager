@@ -248,3 +248,12 @@ input, select, textarea { font-size: 16px; }
 .thick-warn:empty { display: none; }
 
 .auto-note { display: block; margin-top: 4px; padding: 2px 8px; font-size: 11px; color: #2f855a; background: rgba(47,133,90,.12); border: 1px solid rgba(47,133,90,.4); border-radius: 10px; }
+
+.ch-big { font-size: 34px; font-weight: 700; margin: 4px 0; } .ch-big small { font-size: 14px; color: var(--muted); }
+.ch-badge { display: inline-block; padding: 4px 10px; border-radius: 12px; color: #fff; font-weight: 700; font-size: 14px; margin: 2px 0 6px; }
+.ch-badge.ok { background: #2f855a; } .ch-badge.warn { background: #dd6b20; } .ch-badge.na { background: #a0aec0; }
+.ch-canvas { width: 100%; height: 110px; display: block; margin-top: 6px; }
+.ch-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0; }
+.ch-cell { border-radius: 8px; padding: 6px; display: flex; flex-direction: column; background: #f0fff4; border: 1px solid #c6f6d5; min-height: 62px; }
+.ch-cell.warm { background: #fffaf0; border-color: #fbd38d; } .ch-cell.hot { background: #fff5f5; border-color: #feb2b2; } .ch-cell.na { background: #f7fafc; border-color: var(--line); color: var(--muted); }
+.ch-v { font-size: 20px; font-weight: 700; } .ch-v small { font-size: 11px; font-weight: 400; } .ch-m { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
