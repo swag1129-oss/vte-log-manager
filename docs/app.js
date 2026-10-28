@@ -4,7 +4,7 @@
   const CONFIG = {
     appKey: "5rz8t9p1imu4wa9",
     defaultRoot: "/NEXT LAB/Log/A222/VTE log/VTE_MANAGER",
-    version: "2026-10-26-1746a0a6"
+    version: "2026-10-28-c1cd3847"
   };
   const LS = {author: "vte.author", root: "vte.root"};
   const {fmt, displayDate, calcRequiredMonitor, calcMonitorRate} = VTECore;
@@ -418,11 +418,18 @@
   }
 
   // ---------- settings ----------
+  function showThickPost() {
+    const r = VTEThick.lastPost(), el = $("#thickPostInfo");
+    if (!el) return;
+    el.textContent = r ? `목표 전송 마지막: ${r.ok ? "성공" : r.status ? `실패 (HTTP ${r.status}${r.status === 401 || r.status === 403 ? " — 토큰 확인" : ""})` : "실패 (연결/CORS)"} · ${new Date(r.at).toLocaleString("ko-KR")}` : "목표 전송: 아직 기록 없음";
+  }
   async function renderSettings() {
     $("#authorEdit").value = localStorage.getItem(LS.author) || "";
     $("#rootInput").value = rootPath();
     $("#testModeToggle").checked = localStorage.getItem("vte.testMode") === "1";
     $("#thickUrl").value = localStorage.getItem(VTEThick.KEY) || "";
+    $("#thickToken").value = localStorage.getItem(VTEThick.TOKEN_KEY) || "";
+    showThickPost();
     $("#chLimP").value = localStorage.getItem(VTEChamber.KP) || "";
     $("#chLimT").value = localStorage.getItem(VTEChamber.KT) || "";
     const last = await app.store.get("lastSync");
@@ -441,11 +448,14 @@
       e.preventDefault();
       const v = $("#thickUrl").value.trim().replace(/\/+$/, "");
       if (v) localStorage.setItem(VTEThick.KEY, v); else localStorage.removeItem(VTEThick.KEY);
+      const tk = $("#thickToken").value.trim();
+      if (tk) localStorage.setItem(VTEThick.TOKEN_KEY, tk); else localStorage.removeItem(VTEThick.TOKEN_KEY);
       const info = $("#thickInfo");
       if (!v) { info.textContent = "서버 주소를 지웠어요. 수동 입력만 쓰여요."; editor?.render(); return; }
       info.textContent = "연결 확인 중…";
       const ports = await VTEThick.live();
       info.textContent = ports ? `연결됨 · 센서 ${Object.keys(ports).join(", ")}` : "연결 안 됨 (주소 확인). 수동 입력은 그대로 돼요.";
+      if (ports && tk) { await VTEThick.postJson("/target/clear", {port: "_test", layer_label: ""}); showThickPost(); }
       editor?.render();
     };
     $("#loginBtn").onclick = async () => { location.href = await app.client.beginLogin(); };

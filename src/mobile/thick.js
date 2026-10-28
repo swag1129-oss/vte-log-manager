@@ -57,10 +57,19 @@
     }
   }
   // Tells the alert service which thickness a layer must reach (best effort; failures ignored).
+  const TOKEN_KEY = "vte.thickToken", POST_KEY = "vte.thickLastPost";
+  const lastPost = () => { try { return JSON.parse(localStorage.getItem(POST_KEY) || "null"); } catch (e) { return null; } };
   async function postJson(path, body) {
     const base = url();
-    if (!base) return;
-    try { await fetch(base + path, {method: "POST", body: JSON.stringify(body), keepalive: true}); } catch (e) { /* ignore */ }
+    if (!base) return null;
+    const tok = (localStorage.getItem(TOKEN_KEY) || "").trim();
+    let rec;
+    try {
+      const r = await fetch(base + path, {method: "POST", body: JSON.stringify(body), keepalive: true, headers: tok ? {"X-Thick-Token": tok} : {}});
+      rec = {at: Date.now(), path, ok: r.ok, status: r.status};
+    } catch (e) { rec = {at: Date.now(), path, ok: false, status: 0}; }
+    try { localStorage.setItem(POST_KEY, JSON.stringify(rec)); } catch (e) { /* ignore */ }
+    return rec;
   }
   const setTarget = (port, label, targetNm, startNm, logId) => {
     const t = Number(targetNm), s = Number(startNm);
@@ -657,5 +666,5 @@
     return rows.filter((r, i) => i % step === 0 || r.flag);
   }
 
-  root.VTEThick = {findAutoStart, findAutoStop, zeroEvent, SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, tempAt, tempSource, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
+  root.VTEThick = {findAutoStart, findAutoStop, zeroEvent, SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, tempAt, tempSource, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, TOKEN_KEY, lastPost, postJson, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
 })(typeof globalThis !== "undefined" ? globalThis : this);

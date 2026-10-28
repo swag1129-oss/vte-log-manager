@@ -57,17 +57,27 @@
     }
   }
   // Tells the alert service which thickness a layer must reach (best effort; failures ignored).
+  const TOKEN_KEY = "vte.thickToken", POST_KEY = "vte.thickLastPost";
+  const lastPost = () => { try { return JSON.parse(localStorage.getItem(POST_KEY) || "null"); } catch (e) { return null; } };
   async function postJson(path, body) {
     const base = url();
-    if (!base) return;
-    try { await fetch(base + path, {method: "POST", body: JSON.stringify(body), keepalive: true}); } catch (e) { /* ignore */ }
+    if (!base) return null;
+    const tok = (localStorage.getItem(TOKEN_KEY) || "").trim();
+    let rec;
+    try {
+      const r = await fetch(base + path, {method: "POST", body: JSON.stringify(body), keepalive: true, headers: tok ? {"X-Thick-Token": tok} : {}});
+      rec = {at: Date.now(), path, ok: r.ok, status: r.status};
+    } catch (e) { rec = {at: Date.now(), path, ok: false, status: 0}; }
+    try { localStorage.setItem(POST_KEY, JSON.stringify(rec)); } catch (e) { /* ignore */ }
+    return rec;
   }
   const setTarget = (port, label, targetNm, startNm, logId) => {
     const t = Number(targetNm), s = Number(startNm);
     return t > 0 && Number.isFinite(s) ? postJson("/target", {port, layer_label: label || "", target_monitor_nm: t, start_thk_nm: s, log_id: logId || ""}) : null;
   };
   const clearTarget = (port, label) => postJson("/target/clear", {port, layer_label: label || ""});
-  const healthBadge = h => (h === null || h === undefined || Number.isNaN(Number(h)) ? null : {text: `health ${Math.round(Number(h))}%`, color: Number(h) <= 70 ? "#d33" : Number(h) <= 80 ? "#e8890c" : ""});
+  // Optional 2nd arg: /live row. Mixed-ASCII rows (proto "mixed") also carry the active crystal; older rows lack it and the badge is unchanged.
+  const healthBadge = (h, p) => (h === null || h === undefined || Number.isNaN(Number(h)) ? null : {text: `health ${Math.round(Number(h))}%${p && p.proto === "mixed" && p.crystal ? ` · 결정 ${p.crystal}` : ""}`, color: Number(h) <= 70 ? "#d33" : Number(h) <= 80 ? "#e8890c" : ""});
   const live = async () => (await getJson("/live"))?.ports || null;
   async function range(port, fromMs, toMs, ms = 8000) {
     const j = await getJson(`/range?port=${encodeURIComponent(port)}&from=${Math.floor(fromMs / 1000)}&to=${Math.ceil(toMs / 1000)}`, ms);
@@ -87,7 +97,7 @@
     const p = lp?.[port];
     if (!p || !p.ok) return null;
     // 861 reports the source power (%) on the wire; 0 means the source is not wired to it (or off), so it is never autofilled. Other models: power is a manual knob.
-    return {thk: num(p.thk_med ?? p.thk_nm), rate: num(p.rate_fit), power: is861(p) && num(p.power) > 0 ? num(p.power) : null};
+    return {thk: num(p.thk_med ?? p.thk_nm), rate: num(p.rate_fit), power: is861(p) && num(p.power) > 0 ? num(p.power) : null, proto: p.proto || "360c", crystal: num(p.crystal), avg_rate: num(p.avg_rate)};
   }
 
   const is861 = r => Boolean(r) && String(r.model) === "861";
@@ -455,7 +465,7 @@
     if (warns.length || badges.length) {
       const lp = await live();
       for (const el of badges) {
-        const b = healthBadge(lp?.[el.dataset.thickhealth]?.health);
+        const hp = lp?.[el.dataset.thickhealth], b = healthBadge(hp?.health, hp);
         el.textContent = b ? b.text : ""; el.style.color = b ? b.color : "";
       }
       for (const el of warns) {
@@ -656,5 +666,5 @@
     return rows.filter((r, i) => i % step === 0 || r.flag);
   }
 
-  root.VTEThick = {findAutoStart, findAutoStop, zeroEvent, SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, tempAt, tempSource, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
+  root.VTEThick = {findAutoStart, findAutoStop, zeroEvent, SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, tempAt, tempSource, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, TOKEN_KEY, lastPost, postJson, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
 })(typeof globalThis !== "undefined" ? globalThis : this);

@@ -177,8 +177,10 @@
         <h2>열증착기 두께 모니터</h2>
         <form id="thickForm">
           <input id="thickUrl" placeholder="https://… (비우면 수동 입력만)" inputmode="url" autocapitalize="off" autocorrect="off">
+          <input id="thickToken" type="password" placeholder="열증착기 토큰 (목표 두께 알림 전송용, 비우면 없음)" autocapitalize="off" autocorrect="off" autocomplete="off">
           <button type="submit">저장·연결 테스트</button>
         </form>
+        <p class="hint" id="thickPostInfo">목표 전송: 아직 기록 없음</p>
         <p class="hint" id="thickInfo">서버 주소를 넣으면 기록 화면에서 층마다 센서(A~D)를 골라 시작·끝 값을 자동으로 채우고 그래프를 보여요. 연결이 안 돼도 수동 입력은 그대로 돼요.</p>
       </div>
       <div class="card">
