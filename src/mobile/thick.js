@@ -488,13 +488,14 @@
       updateLive(box, r.merged, r.hit.rows, r.running, r.out, r.now, tempSource(l) ? r.hit.temps : null);
     }
   }
+  const PRE_MS = 30 * 60000;  // before Start: show the last 30 min of preheat so 전체/최근 5분 differ
   const thin = rows => (rows.length > 3000 ? rows.filter((r, k) => k % Math.ceil(rows.length / 3000) === 0 || r.flag || k === rows.length - 1) : rows);
   // Fetches (cached) and analyzes one layer; returns null while there is nothing to show.
   async function serve(l, i, nextPre, ctx, label) {
     if (!l || !l.sensor_port) return null;
     const now = Date.now();
     const running = l.started_ms && !l.ended_ms;
-    const t0 = l.started_ms ? l.started_ms - 180000 : now - 180000;
+    const t0 = l.started_ms ? l.started_ms - 180000 : now - PRE_MS;
     const t1 = l.ended_ms ? Math.min(now, l.ended_ms + 180000) : now;
     const settled = l.ended_ms && now > l.ended_ms + 190000;
     const pre = !l.started_ms;
@@ -509,14 +510,14 @@
         if (rows) {
           if (!hit.full) hit.rows = rows;
           else { for (const r of rows) if (r.ts > hit.lastTs) hit.rows.push(r); }
-          if (pre) { const cut = (now - 200000) / 1000; if (hit.rows.length && hit.rows[0].ts < cut) hit.rows = hit.rows.filter(r => r.ts >= cut); }
+          if (pre) { const cut = (now - PRE_MS - 20000) / 1000; if (hit.rows.length && hit.rows[0].ts < cut) hit.rows = hit.rows.filter(r => r.ts >= cut); }
           if (hit.rows.length) hit.lastTs = hit.rows[hit.rows.length - 1].ts;
           const ts = tempSource(l);
           if (ts) {
             const tr = await tempRange(ts, hit.tFull ? hit.tLast * 1000 : t0, t1 + 2000);
             if (tr) {
               if (!hit.tFull) hit.temps = tr; else for (const r of tr) if (r.ts > hit.tLast) hit.temps.push(r);
-              if (pre) { const cut = (now - 200000) / 1000; if (hit.temps.length && hit.temps[0].ts < cut) hit.temps = hit.temps.filter(r => r.ts >= cut); }
+              if (pre) { const cut = (now - PRE_MS - 20000) / 1000; if (hit.temps.length && hit.temps[0].ts < cut) hit.temps = hit.temps.filter(r => r.ts >= cut); }
               if (hit.temps.length) hit.tLast = hit.temps[hit.temps.length - 1].ts;
               hit.tFull = true;
             }
@@ -539,7 +540,7 @@
     if (Object.keys(patch).length) ctx.set(i, patch);
     const age = Math.max(0, Math.round((Date.now() - hit.okAt) / 1000));
     if (label) {
-      label.textContent = (hit.rows.length ? `${hit.rows.length}점 · ${running ? "실시간" : l.ended_ms ? "구간 기록" : "최근 3분"}` : "데이터 없음") + (hit.done ? "" : ` · 갱신 ${age}초 전`);
+      label.textContent = (hit.rows.length ? `${hit.rows.length}점 · ${running ? "실시간" : l.ended_ms ? "구간 기록" : "예열 30분"}` : "데이터 없음") + (hit.done ? "" : ` · 갱신 ${age}초 전`);
       label.style.color = !hit.done && age > 10 ? "#e8890c" : "";
       if (!hit.done && (hit.fails >= 3 || age > 15)) label.textContent = "서버 연결 안 됨";
     }
