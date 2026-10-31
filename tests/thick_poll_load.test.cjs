@@ -24,5 +24,5 @@ const ctx = {layers: () => layers, set() {}};
   const ranges = urls.filter(u => u.includes("/range"));
   const uniq = new Set(ranges.map(u => u.split("&to=")[0]));
   console.log("range calls", ranges.length, "unique", uniq.size);
-  assert.ok(ranges.length <= 6 + 2, "ended layers fetch once each, plus at most one pre poll per port");
+  assert.ok(ranges.length <= 6 + 2 * 3, "ended layers fetch once each, plus at most one pre chunk per port per refresh");
 })().catch(e => { console.error(e); process.exit(1); });

@@ -488,6 +488,7 @@
       updateLive(box, r.merged, r.hit.rows, r.running, r.out, r.now, tempSource(l) ? r.hit.temps : null);
     }
   }
+  const CHUNK_MS = 5 * 60000;
   const PRE_MS = 30 * 60000;  // before Start: show the last 30 min of preheat so 전체/최근 5분 differ
   const thin = rows => (rows.length > 3000 ? rows.filter((r, k) => k % Math.ceil(rows.length / 3000) === 0 || r.flag || k === rows.length - 1) : rows);
   // Fetches (cached) and analyzes one layer; returns null while there is nothing to show.
@@ -506,10 +507,16 @@
     if (!hit.done && !hit.busy && now >= hit.nextAt) {
       hit.busy = true;
       try {
-        const rows = hit.full ? await range(l.sensor_port, hit.lastTs * 1000, t1 + 2000) : await range(l.sensor_port, t0, t1 + 2000);
-        if (rows) {
-          if (!hit.full) hit.rows = rows;
-          else { for (const r of rows) if (r.ts > hit.lastTs) hit.rows.push(r); }
+        // Initial load in 5-min chunks (a 30-min /range is ~1.6 MB and times out on slow mobile links); kept rows accumulate across retries.
+        const from = hit.full ? hit.lastTs * 1000 : (hit.cur || t0);
+        const to = hit.full || l.ended_ms ? t1 + 2000 : Math.min(t1 + 2000, from + CHUNK_MS);
+        const rows = await range(l.sensor_port, from, to, hit.full ? 8000 : 15000);
+        if (rows && !hit.full && to < t1 + 2000) {
+          for (const r of rows) if (r.ts > hit.lastTs) { hit.rows.push(r); hit.lastTs = r.ts; }
+          hit.cur = to; hit.fails = 0; hit.nextAt = 0;
+          if (label) label.textContent = `불러오는 중… ${hit.rows.length}점`;
+        } else if (rows) {
+          for (const r of rows) if (r.ts > hit.lastTs) hit.rows.push(r);
           if (pre) { const cut = (now - PRE_MS - 20000) / 1000; if (hit.rows.length && hit.rows[0].ts < cut) hit.rows = hit.rows.filter(r => r.ts >= cut); }
           if (hit.rows.length) hit.lastTs = hit.rows[hit.rows.length - 1].ts;
           const ts = tempSource(l);
@@ -527,7 +534,7 @@
         } else { hit.fails++; hit.nextAt = Date.now() + Math.min(5000, 1000 * hit.fails); }
       } finally { hit.busy = false; }
     }
-    if (!hit.okAt) { if (label) label.textContent = hit.fails >= 3 ? "서버 연결 안 됨" : "연결 중…"; return null; }
+    if (!hit.okAt) { if (label) label.textContent = hit.fails >= 3 ? "서버 연결 안 됨" : hit.cur ? `불러오는 중… ${hit.rows.length}점` : "연결 중…"; return null; }
     if (pre && ctx.autoStart) {
       const ev = findAutoStart(l, ctx.layers(), hit.rows, now);
       if (ev) { ctx.autoStart(i, ev, hit.rows); return null; }
