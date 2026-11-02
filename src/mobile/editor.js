@@ -514,7 +514,7 @@
       if (text) savedTimer = setTimeout(() => { el.textContent = ""; }, 4000);
     }
     $("#editorSaved").addEventListener("click", () => showSaved(""));
-    const thickSelect = (l, i) => !Thick.enabled() ? "" : `<div class="thick-row"><label>두께 센서<select data-i="${i}" data-k="sensor_port">${["", ...Thick.SENSORS].map(p => `<option ${p === (l.sensor_port || "") ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>${l.sensor_port ? '<span class="thick-status" data-thickstatus data-i="${i}"></span>' : ""}${l.sensor_port ? `<span class="thick-health" data-thickhealth="${esc(l.sensor_port)}"></span>` : ""}<div class="thick-warn" data-thickwarn="${blockOf(i).join(",")}"></div></div>`;
+    const thickSelect = (l, i) => !Thick.enabled() ? "" : `<div class="thick-row"><label>두께 센서<select data-i="${i}" data-k="sensor_port">${["", ...Thick.SENSORS].map(p => `<option ${p === (l.sensor_port || "") ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>${l.sensor_port ? `<span class="thick-status" data-thickstatus data-i="${i}"></span>` : ""}${l.sensor_port && !l.started_at ? `<button type="button" class="link" data-act="prewatch" data-i="${i}">${Thick.isPreWatched(l) ? "예열 rate 보는 중 ✓" : "예열 rate 보기"}</button>` : ""}${l.sensor_port ? `<span class="thick-health" data-thickhealth="${esc(l.sensor_port)}"></span>` : ""}<div class="thick-warn" data-thickwarn="${blockOf(i).join(",")}"></div></div>`;
     const thickExtra = (l, i, merged = false) => !Thick.enabled() || !l.sensor_port ? "" : merged ? measureRow(l, i, "thk") : `${measureRow(l, i, "thk")}
       <div class="thick-box" data-thickbox data-i="${i}">
         <div class="thick-live">
@@ -1073,6 +1073,12 @@
         }
         const i = Number(btn.dataset.i), layers = draft.layers;
         const act = btn.dataset.act;
+        if (act === "prewatch") {
+          const on = Thick.togglePreWatch(layers[i]);
+          if (on) for (const x of layers) if (x !== layers[i] && x.sensor_port === layers[i].sensor_port && Thick.isPreWatched(x)) Thick.togglePreWatch(x);
+          refreshCard(i); Thick.refresh(thickCtx);
+          return;
+        }
         if (act === "settings") {
           const card = layers[i], idx = blockOf(i);
           const defaultOpen = idx.some(j => !String(layers[j].material || "").trim());

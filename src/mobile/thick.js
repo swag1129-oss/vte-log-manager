@@ -483,7 +483,11 @@
       }
     }
     const allLayers = ctx.layers(), nextPre = new Set();
-    for (const port of new Set(allLayers.filter(x => x && x.sensor_port && !x.started_ms).map(x => x.sensor_port))) nextPre.add(allLayers.findIndex(x => x && x.sensor_port === port && !x.started_ms));
+    // Per port, the pre-Start (preheat) poll goes to the layer whose "예열 rate" button is on, else the first unstarted layer.
+    for (const port of new Set(allLayers.filter(x => x && x.sensor_port && !x.started_ms).map(x => x.sensor_port))) {
+      const w = allLayers.findIndex(x => x && x.sensor_port === port && !x.started_ms && preWatch.has(x));
+      nextPre.add(w >= 0 ? w : allLayers.findIndex(x => x && x.sensor_port === port && !x.started_ms));
+    }
     for (const canvas of root.querySelectorAll("canvas[data-thickchart], canvas[data-thickco]")) {
       if (canvas.dataset.thickco) { await refreshCodep(canvas, root, allLayers, nextPre, ctx); continue; }
       const i = Number(canvas.dataset.i);
@@ -497,6 +501,10 @@
     }
   }
   const CHUNK_MS = 5 * 60000;
+  // Layers whose pre-Start rate the user asked to see (session only, never saved).
+  const preWatch = new WeakSet();
+  const isPreWatched = l => Boolean(l) && preWatch.has(l);
+  const togglePreWatch = l => { if (!l) return false; if (preWatch.has(l)) preWatch.delete(l); else preWatch.add(l); return preWatch.has(l); };
   const PRE_MS = 30 * 60000;  // before Start: show the last 30 min of preheat so 전체/최근 5분 differ
   const thin = rows => (rows.length > 3000 ? rows.filter((r, k) => k % Math.ceil(rows.length / 3000) === 0 || r.flag || k === rows.length - 1) : rows);
   // Fetches (cached) and analyzes one layer; returns null while there is nothing to show.
@@ -682,5 +690,5 @@
     return rows.filter((r, i) => i % step === 0 || r.flag);
   }
 
-  root.VTEThick = {findAutoStart, findAutoStop, zeroEvent, SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, tempAt, tempSource, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, TOKEN_KEY, lastPost, postJson, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
+  root.VTEThick = {isPreWatched, togglePreWatch, findAutoStart, findAutoStop, zeroEvent, SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, tempAt, tempSource, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, TOKEN_KEY, lastPost, postJson, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
 })(typeof globalThis !== "undefined" ? globalThis : this);
