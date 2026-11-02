@@ -1,4 +1,4 @@
-// "예열 rate 보기" moves the pre-Start poll on a port from the first unstarted layer to the watched one.
+// "예열 rate 보기" (co-dep only) moves the pre-Start poll on a port from the first unstarted layer to the watched one.
 const assert = require("assert/strict");
 const fs = require("fs"), path = require("path"), vm = require("vm");
 const src = fs.readFileSync(path.join(__dirname, "../src/mobile/thick.js"), "utf8");
