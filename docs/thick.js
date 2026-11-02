@@ -356,14 +356,14 @@
     for (let k = 0; k < rows.length; k++) {
       const r = rows[k];
       if (r.flag !== "start" || r.ts * 1000 <= floor || r.ts * 1000 > now - BLIP_MS) continue;
-      // Shutter open < 5 s (e.g. Start with Final Thickness 0 → instant Process Complete) is not a deposition.
+      // Shutter open ≤ 1 s (e.g. Start with Final Thickness 0 → instant Process Complete) is not a deposition.
       const stop = rows.slice(k + 1).find(x => x.flag === "stop" || x.flag === "start");
       if (stop && stop.flag === "stop" && (stop.ts - r.ts) * 1000 < BLIP_MS) continue;
       best = r;
     }
     return best ? Math.round(best.ts * 1000) : null;
   }
-  const BLIP_MS = 5000;
+  const BLIP_MS = 1500;  // 1 Hz sampling: a sub-1 s open shows as ≤ 1 sample (~1 s) apart
   // Instrument Stop (flag "stop") on this running layer's port after its start and not yet skipped (cancelled); null otherwise.
   function findAutoStop(l, rows, now) {
     if (!l || !l.started_ms || l.ended_ms || !l.sensor_port) return null;
