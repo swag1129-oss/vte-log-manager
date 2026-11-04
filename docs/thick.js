@@ -341,6 +341,13 @@
     for (const r of rows) if (r.ts >= t - 1 && r.ts <= t + maxLagMs / 1000 && num(r[field]) !== null) { best = r; break; }
     return best;
   }
+  // Last 861 row with power > 0 within 10 s up to `ms` (+1 s for clock skew); null if none (power 0 = source not on this monitor).
+  function powerAt(rows, ms) {
+    const t = ms / 1000;
+    let best = null;
+    for (const r of rows) { if (r.ts > t + 1) break; if (r.ts >= t - 10 && is861(r) && num(r.power) > 0) best = num(r.power); }
+    return best;
+  }
   // Instrument Start/Zero (flag start|reset) within 5 s of the layer start: the monitor was zeroed, so the layer's start thickness is 0 (the event row itself still carries the pre-Zero median).
   function zeroEvent(rows, startMs) {
     const t = startMs / 1000;
@@ -393,6 +400,9 @@
     }
     if (startMs && !l.start_temp) { const t = tempAt(temps, startMs); if (t !== null) patch.start_temp = fmtNum(t, 1); }
     if (endMs && !l.end_temp) { const t = tempAt(temps, endMs); if (t !== null) patch.end_temp = fmtNum(t, 1); }
+    // 861 power at the start/end moment (also for shutter-driven auto start/end); typed values are never overwritten.
+    if (startMs && !l.start_power) { const p = powerAt(rows, startMs); if (p !== null) patch.start_power = fmtNum(p, 1); }
+    if (endMs && !l.end_power) { const p = powerAt(rows, endMs); if (p !== null) patch.end_power = fmtNum(p, 1); }
     if (startMs && (l.start_pending || !l.start_thk)) {
       const t = rowAt(rows, startMs, "thk_med"), r = rowAt(rows, startMs, "rate_fit", 120000);
       if (t && !l.start_thk && !patch.start_thk) patch.start_thk = fmtNum(zeroEvent(rows, startMs) ? 0 : t.thk_med, 2);
@@ -695,5 +705,5 @@
     return rows.filter((r, i) => i % step === 0 || r.flag);
   }
 
-  root.VTEThick = {isPreWatched, togglePreWatch, findAutoStart, findAutoStop, zeroEvent, SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, tempAt, tempSource, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, TOKEN_KEY, lastPost, postJson, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
+  root.VTEThick = {powerAt, isPreWatched, togglePreWatch, findAutoStart, findAutoStop, zeroEvent, SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, tempAt, tempSource, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, TOKEN_KEY, lastPost, postJson, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
 })(typeof globalThis !== "undefined" ? globalThis : this);
