@@ -607,7 +607,7 @@
             ${thickSelect(l, i)}
             <div class="measure-head">
               <span></span>
-              <button data-act="start" data-i="${i}">${l.started_at ? (l.ended_at ? "▶ 시작 ↺" : "▶ 시작 · 탭하면 취소") : "▶ 시작"}<small>${esc((l.started_at || "").slice(11))}</small></button>
+              <button data-act="start" data-i="${i}">${l.started_at ? (l.ended_at ? (l.auto_start || l.auto_end ? "▶ 시작 · 탭하면 전부 취소" : "▶ 시작 ↺") : "▶ 시작 · 탭하면 취소") : "▶ 시작"}<small>${esc((l.started_at || "").slice(11))}</small></button>
               <button data-act="end" data-i="${i}">${l.ended_at ? "■ 끝 · 탭하면 취소" : "■ 끝"}<small>${esc((l.ended_at || "").slice(11))}</small></button>
             </div>
             ${["pressure", "rate", "power", "temp"].map(k => measureRow(l, i, k)).join("")}
@@ -673,7 +673,7 @@
           <div class="phase">
             <div class="measure-head">
               <span></span>
-              <button data-act="start" data-i="${i}">${l.started_at ? (l.ended_at ? "▶ 시작 ↺" : "▶ 시작 · 탭하면 취소") : "▶ 시작"}<small>${esc((l.started_at || "").slice(11))}</small></button>
+              <button data-act="start" data-i="${i}">${l.started_at ? (l.ended_at ? (l.auto_start || l.auto_end ? "▶ 시작 · 탭하면 전부 취소" : "▶ 시작 ↺") : "▶ 시작 · 탭하면 취소") : "▶ 시작"}<small>${esc((l.started_at || "").slice(11))}</small></button>
               <button data-act="end" data-i="${i}">${l.ended_at ? "■ 끝 · 탭하면 취소" : "■ 끝"}<small>${esc((l.ended_at || "").slice(11))}</small></button>
             </div>
             ${measureRow(l, i, "pressure")}
@@ -1125,6 +1125,14 @@
         if (act === "start" || act === "end") {
           const key = act === "start" ? "started_at" : "ended_at";
           const cancel = layers[i][key] && (act === "end" || !layers[i].ended_at);
+          // Auto-started and auto-ended (e.g. shutter opened by mistake): ▶ cancels both and re-arms auto start on the next shutter open.
+          if (act === "start" && layers[i].started_at && layers[i].ended_at && (layers[i].auto_start || layers[i].auto_end)) {
+            if (!confirm("시작·끝 모두 취소할까요? (다음 셔터 열림에서 다시 자동 시작)")) return;
+            blockOf(i).forEach(j => { if (Thick.enabled() && layers[j].sensor_port) Thick.clearTarget(layers[j].sensor_port, layers[j].material); Core.cancelMark(layers[j], "start", Thick.enabled()); });
+            setShared(i, "collapsed", false);
+            persist(); refreshCard(i); renderStructure(); syncRunningState(); Thick.refresh(thickCtx);
+            return;
+          }
           if (cancel) {
             if (!confirm(act === "end" ? "종료 취소할까요? (끝 시각·자동 채운 끝 값 삭제, 진행 중으로 복귀)" : "시작 취소할까요? (시작 시각·자동 채운 시작 값 삭제)")) return;
             blockOf(i).forEach(j => { if (Thick.enabled() && layers[j].sensor_port) Thick.clearTarget(layers[j].sensor_port, layers[j].material); Core.cancelMark(layers[j], act, Thick.enabled()); });
