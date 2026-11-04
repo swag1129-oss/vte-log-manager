@@ -659,7 +659,7 @@
   }
   function stop() { clearInterval(timer); timer = null; }
 
-  // Series for the xlsx extra sheet. A /range reply is ~1 MB (no compression), so a 28-layer log must not be fetched all at once:
+  // Series for the xlsx extra sheet. A /range reply is ~1 MB per 20 min (no compression), so a 28-layer log must not be fetched all at once:
   // at most `conc` requests in flight, each with its own timeout counted from when it actually starts, three tries, then a last sweep of the failures.
   // Returns {rows: [rows|null per item], failed}.
   async function layerSeries(items, capMs = 25000, conc = 4) {
@@ -683,9 +683,14 @@
     await pass(rows.map((r, k) => (r ? -1 : k)).filter(k => k >= 0));
     return {rows, failed: rows.filter(r => !r).length};
   }
+  // Fetched in CHUNK_MS pieces: a 30-min co-dep window is ~2 MB and timed out on phones (11-02 log lost layers 3, 4, 7).
   async function series(port, fromMs, toMs, max = 600, ms = 8000) {
-    const rows = await range(port, fromMs, toMs, ms);
-    if (!rows) return null;
+    const rows = [];
+    for (let a = fromMs; a < toMs; a += CHUNK_MS) {
+      const part = await range(port, a, Math.min(toMs, a + CHUNK_MS), ms);
+      if (!part) return null;
+      for (const r of part) if (!rows.length || r.ts > rows[rows.length - 1].ts) rows.push(r);
+    }
     const step = Math.max(1, Math.ceil(rows.length / max));
     return rows.filter((r, i) => i % step === 0 || r.flag);
   }
