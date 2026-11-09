@@ -6,6 +6,25 @@
   const SENSORS = ["A", "B", "C", "D"];
   // Evaporation source -> [monitor port, sensor number on that port]. Single place to edit when the monitor wiring changes.
   const SOURCE_SENSOR = {"M-1": ["A", 1], "M-2": ["A", 2], "M-3": ["B", 1], "O-1": ["B", 2], "O-2": ["B", 2], "O-3": ["C", 1], "O-4": ["C", 1], "O-5": ["C", 2], "O-6": ["D", 1], "O-7": ["D", 1], "O-8": ["D", 2], "O-9": ["D", 2]};
+  const BUILTIN_SENSOR = JSON.stringify(SOURCE_SENSOR);
+  // Server /config (sources.json) replaces the table in place; any failure keeps the built-in/last good table.
+  function applyConfig(cfg) {
+    const src = cfg && cfg.sources;
+    if (!src || typeof src !== "object") return false;
+    const next = {};
+    for (const [k, v] of Object.entries(src)) if (v && /^[A-D]$/.test(v.port) && Number.isFinite(Number(v.sensor))) next[String(k).toUpperCase()] = [v.port, Number(v.sensor)];
+    if (!Object.keys(next).length) return false;
+    for (const k of Object.keys(SOURCE_SENSOR)) delete SOURCE_SENSOR[k];
+    Object.assign(SOURCE_SENSOR, next);
+    return true;
+  }
+  const resetConfig = () => { for (const k of Object.keys(SOURCE_SENSOR)) delete SOURCE_SENSOR[k]; Object.assign(SOURCE_SENSOR, JSON.parse(BUILTIN_SENSOR)); };
+  let cfgAt = 0, cfgBusy = null;
+  function ensureConfig() {
+    if (Date.now() - cfgAt < 3600000) return Promise.resolve();
+    if (!cfgBusy) cfgBusy = getJson("/config", 5000).then(c => { cfgAt = Date.now() - (applyConfig(c) ? 0 : 3300000); }).catch(() => {}).finally(() => { cfgBusy = null; });
+    return cfgBusy;
+  }
   const sensorFor = src => { const m = SOURCE_SENSOR[String(src || "").trim().toUpperCase()]; return m ? {port: m[0], sensor: m[1]} : null; };
   const sourceNames = (port, sensor) => Object.keys(SOURCE_SENSOR).filter(k => SOURCE_SENSOR[k][0] === port && SOURCE_SENSOR[k][1] === sensor).join("/");
   // Sets layer.sensor_port from its source unless the user picked one by hand (or an existing log already has one).
@@ -90,6 +109,54 @@
   async function tempRange(source, fromMs, toMs, ms = 8000) {
     const j = await getJson(`/temp_range?source=${encodeURIComponent(source)}&from=${Math.floor(fromMs / 1000)}&to=${Math.ceil(toMs / 1000)}`, ms);
     return j ? (j.rows || []) : null;
+  }
+  async function layersRange(port, fromMs, toMs, ms = 8000) {
+    const j = await getJson(`/layers?port=${encodeURIComponent(port)}&from=${Math.floor(fromMs / 1000)}&to=${Math.ceil(toMs / 1000)}`, ms);
+    return j && Array.isArray(j.rows) ? j.rows : null;
+  }
+  async function eventsRange(port, fromMs, toMs, ms = 8000) {
+    const j = await getJson(`/events?port=${encodeURIComponent(port)}&from=${Math.floor(fromMs / 1000)}&to=${Math.ceil(toMs / 1000)}`, ms);
+    return j && Array.isArray(j.rows) ? j.rows : null;
+  }
+  const MATCH_S = 5;
+  // Server layer (shutter open..close) on this port whose start is within ±5 s of the layer's start; null -> caller falls back to the local logic.
+  function matchLayer(srvLayers, port, startMs) {
+    let best = null, bd = MATCH_S * 1000 + 1;
+    for (const r of srvLayers || []) {
+      if (!r || r.port !== port || !Number.isFinite(Number(r.t0))) continue;
+      const d = Math.abs(r.t0 * 1000 - startMs);
+      if (d < bd) { best = r; bd = d; }
+    }
+    return bd <= MATCH_S * 1000 ? best : null;
+  }
+  // Blank-only fields from a matched server layer. End values need a finished (non-partial) layer whose close is within ±5 s of the layer's end.
+  function layerPatch(l, m) {
+    const p = {};
+    if (!m) return p;
+    const put = (k, v, d) => { if (!l[k] && num(v) !== null) p[k] = fmtNum(num(v), d); };
+    put("start_thk", m.thk0_nm, 2); put("start_power", m.p0, 1); put("start_temp", m.temp0, 1);
+    if (!l.det_ms) { p.det_ms = Math.round(m.t0 * 1000); if (!l.det_power && num(m.p0) !== null) p.det_power = fmtNum(num(m.p0), 1); if (!l.det_temp && num(m.temp0) !== null) p.det_temp = fmtNum(num(m.temp0), 1); }
+    if (l.ended_ms && !m.partial && Math.abs(m.t1 * 1000 - l.ended_ms) <= MATCH_S * 1000) {
+      put("end_thk", m.thk1_nm, 2); put("end_rate", m.rate_end, 3); put("end_power", m.p1, 1); put("end_temp", m.temp1, 1);
+      put("avg_rate", m.rate_avg, 3); put("mon_diff", m.dthk_nm, 2);
+    }
+    return p;
+  }
+  // Server events -> auto start/stop (shutter open/close, blip=1 ignored). Same contract as findAutoStart/findAutoStop.
+  function eventStart(l, layers, events, now) {
+    if (!l || l.started_ms || !l.sensor_port) return null;
+    const same = (layers || []).filter(x => x && x.sensor_port === l.sensor_port);
+    if (same.some(x => x.started_ms && !x.ended_ms)) return null;
+    const floor = Math.max(l.auto_skip_ms || 0, ...same.map(x => Math.max(x.started_ms || 0, x.ended_ms || 0)));
+    let best = null;
+    for (const e of events || []) if (e.kind === "shutter_open" && !e.blip && e.port === l.sensor_port && e.ts * 1000 > floor && e.ts * 1000 <= now - BLIP_MS) best = e;
+    return best ? Math.round(best.ts * 1000) : null;
+  }
+  function eventStop(l, events, now) {
+    if (!l || !l.started_ms || l.ended_ms || !l.sensor_port) return null;
+    const floor = Math.max(l.started_ms, l.auto_end_skip_ms || 0);
+    for (const e of events || []) if (e.kind === "shutter_close" && !e.blip && e.port === l.sensor_port && e.ts * 1000 > floor && e.ts * 1000 <= now + 5000) return Math.round(e.ts * 1000);
+    return null;
   }
   const num = v => (v === null || v === undefined || Number.isNaN(Number(v)) ? null : Number(v));
   // Values for the form: thickness (5 s median) in nm, rate_fit (adaptive 10-60 s slope of it) in Å/s, power in %. Raw RS232 `rate` is never used for autofill.
@@ -393,9 +460,10 @@
 
   // Everything the page does with a running or finished layer, from one server fetch: chart, big numbers, delayed start/end values, start detection, heat check, one-touch result.
   // ctx: {layers(): draft layers, set(i, patch)}
-  function analyze(l, i, rows, now, ctx, temps = []) {
+  function analyze(l, i, rows, now, ctx, temps = [], srv = null) {
     const out = {};
     const patch = {};
+    if (srv && l.started_ms) { Object.assign(patch, layerPatch(l, matchLayer(srv.layers, l.sensor_port, l.started_ms))); l = {...l, ...patch}; out.serverLayer = Object.keys(patch).length > 0; }
     const startMs = l.started_ms, endMs = l.ended_ms;
     if (startMs && !endMs && !l.start_zero && zeroEvent(rows, startMs)) {
       patch.start_zero = "1";
@@ -524,6 +592,7 @@
   // Fetches (cached) and analyzes one layer; returns null while there is nothing to show.
   async function serve(l, i, nextPre, ctx, label) {
     if (!l || !l.sensor_port) return null;
+    ensureConfig();
     const now = Date.now();
     const running = l.started_ms && !l.ended_ms;
     const t0 = l.started_ms ? l.started_ms - 180000 : now - PRE_MS;
@@ -533,7 +602,7 @@
     if (pre && !nextPre.has(i)) { if (label) label.textContent = "시작 전"; return null; }
     const id = pre ? `${l.sensor_port}|pre` : `${l.sensor_port}|${t0}|${l.ended_ms || ""}`;
     let hit = cache.get(id);
-    if (!hit) { hit = {rows: [], temps: [], tLast: 0, tFull: false, lastTs: 0, okAt: 0, nextAt: 0, fails: 0, busy: false, full: false, done: false}; cache.set(id, hit); }
+    if (!hit) { hit = {srv: null, rows: [], temps: [], tLast: 0, tFull: false, lastTs: 0, okAt: 0, nextAt: 0, fails: 0, busy: false, full: false, done: false}; cache.set(id, hit); }
     if (!hit.done && !hit.busy && now >= hit.nextAt) {
       hit.busy = true;
       try {
@@ -561,6 +630,10 @@
               hit.tFull = true;
             }
           }
+          if (l.sensor_port) {
+            const [ly, ev] = await Promise.all([layersRange(l.sensor_port, t0 - 10000, t1 + 10000, 6000), eventsRange(l.sensor_port, t0 - 10000, t1 + 10000, 6000)]);
+            hit.srv = ly || ev ? {layers: ly, events: ev} : null;
+          }
           hit.full = true; hit.fails = 0; hit.okAt = Date.now(); hit.nextAt = hit.okAt + 1800;
           if (settled) hit.done = true;
         } else { hit.fails++; hit.nextAt = Date.now() + Math.min(5000, 1000 * hit.fails); }
@@ -568,14 +641,14 @@
     }
     if (!hit.okAt) { if (label) label.textContent = hit.fails >= 3 ? "서버 연결 안 됨" : hit.cur ? `불러오는 중… ${hit.rows.length}점` : "연결 중…"; return null; }
     if (pre && ctx.autoStart) {
-      const ev = findAutoStart(l, ctx.layers(), hit.rows, now);
+      const ev = hit.srv && hit.srv.events ? eventStart(l, ctx.layers(), hit.srv.events, now) : findAutoStart(l, ctx.layers(), hit.rows, now);
       if (ev) { ctx.autoStart(i, ev, hit.rows); return null; }
     }
     if (running && ctx.autoEnd) {
-      const ev = findAutoStop(l, hit.rows, now);
+      const ev = hit.srv && hit.srv.events ? eventStop(l, hit.srv.events, now) : findAutoStop(l, hit.rows, now);
       if (ev) { ctx.autoEnd(i, ev); return null; }
     }
-    const {patch, out, merged} = analyze(l, i, hit.rows, now, ctx, hit.temps);
+    const {patch, out, merged} = analyze(l, i, hit.rows, now, ctx, hit.temps, hit.srv && hit.srv.layers ? hit.srv : null);
     if (Object.keys(patch).length) ctx.set(i, patch);
     const age = Math.max(0, Math.round((Date.now() - hit.okAt) / 1000));
     if (label) {
@@ -711,5 +784,5 @@
     return rows.filter((r, i) => i % step === 0 || r.flag);
   }
 
-  root.VTEThick = {powerAt, isPreWatched, togglePreWatch, findAutoStart, findAutoStop, zeroEvent, SOURCE_SENSOR, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, tempAt, tempSource, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, TOKEN_KEY, lastPost, postJson, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
+  root.VTEThick = {powerAt, isPreWatched, togglePreWatch, findAutoStart, findAutoStop, zeroEvent, SOURCE_SENSOR, applyConfig, resetConfig, ensureConfig, matchLayer, layerPatch, eventStart, eventStop, layersRange, eventsRange, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, tempAt, tempSource, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, TOKEN_KEY, lastPost, postJson, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
 })(typeof globalThis !== "undefined" ? globalThis : this);
