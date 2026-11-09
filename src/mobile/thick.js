@@ -537,7 +537,8 @@
       hit.busy = true;
       try {
         // Initial load in 5-min chunks (a 30-min /range is ~1.6 MB and times out on slow mobile links); kept rows accumulate across retries.
-        const from = hit.full ? hit.lastTs * 1000 : (hit.cur || t0);
+        // hit.cur = time fetched up to (not the last row: with on=1 a powered-off port returns no rows, and from=lastTs=0 asked for the whole DB on 11-09).
+        const from = hit.full ? Math.max(t0, (hit.cur || t0) - 5000) : (hit.cur || t0);
         const to = hit.full || l.ended_ms ? t1 + 2000 : Math.min(t1 + 2000, from + CHUNK_MS);
         const rows = await range(l.sensor_port, from, to, hit.full ? 8000 : 15000, pre);
         if (rows && !hit.full && to < t1 + 2000) {
@@ -546,11 +547,12 @@
           if (label) label.textContent = `불러오는 중… ${hit.rows.length}점`;
         } else if (rows) {
           for (const r of rows) if (r.ts > hit.lastTs) hit.rows.push(r);
+          hit.cur = Math.min(to, Date.now());
           if (pre) { const cut = (now - PRE_MS - 20000) / 1000; if (hit.rows.length && hit.rows[0].ts < cut) hit.rows = hit.rows.filter(r => r.ts >= cut); }
           if (hit.rows.length) hit.lastTs = hit.rows[hit.rows.length - 1].ts;
           const ts = tempSource(l);
           if (ts) {
-            const tr = await tempRange(ts, hit.tFull ? hit.tLast * 1000 : t0, t1 + 2000);
+            const tr = await tempRange(ts, hit.tFull ? Math.max(t0, hit.tLast * 1000) : t0, t1 + 2000);
             if (tr) {
               if (!hit.tFull) hit.temps = tr; else for (const r of tr) if (r.ts > hit.tLast) hit.temps.push(r);
               if (pre) { const cut = (now - PRE_MS - 20000) / 1000; if (hit.temps.length && hit.temps[0].ts < cut) hit.temps = hit.temps.filter(r => r.ts >= cut); }
