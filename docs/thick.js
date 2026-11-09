@@ -140,7 +140,8 @@
     }
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth || 300;
-    const hasTemp = Boolean(opts.temps && opts.temps.length);
+    const tempSer = opts.tempSeries ? opts.tempSeries.filter(t => t.rows && t.rows.length) : null;  // co-dep: one temperature line per source
+    const hasTemp = Boolean(tempSer ? tempSer.length : opts.temps && opts.temps.length);
     const wanted = opts.panels ? PANELS.filter(p => opts.panels.includes(p.key)) : PANELS.filter(p => p.key !== "temp" && rows.some(r => num(r[p.key]) !== null) && !(p.key === "power" && (port === "D" && !rows.some(is861) || rows.some(is861) && !hasPower861(rows))));
     const show = wanted.length ? wanted : PANELS.slice(0, 2);
     if (hasTemp && tempOn()) show.push(PANELS[3]);
@@ -171,7 +172,8 @@
     g.font = "11px sans-serif";
     show.forEach((p, k) => {
       const y0 = top + k * (ph + gap);
-      const sers = p.key === "temp" ? [{color: null, pts: opts.temps.map(r => [r.ts * 1000, r.ok === false ? null : num(r.pv)]).filter(q => q[1] !== null && q[0] >= t0 && q[0] <= t1)}] : SER.map(s => ({...s, pts: s.rows.map(r => [r.ts * 1000, num(r[p.key])]).filter(q => q[1] !== null && q[0] >= t0)}));
+      const tpts = rs => rs.map(r => [r.ts * 1000, r.ok === false ? null : num(r.pv)]).filter(q => q[1] !== null && q[0] >= t0 && q[0] <= t1);
+      const sers = p.key === "temp" && tempSer ? tempSer.map(t => ({...t, pts: tpts(t.rows)})) : p.key === "temp" ? [{color: null, pts: opts.temps.map(r => [r.ts * 1000, r.ok === false ? null : num(r.pv)]).filter(q => q[1] !== null && q[0] >= t0 && q[0] <= t1)}] : SER.map(s => ({...s, pts: s.rows.map(r => [r.ts * 1000, num(r[p.key])]).filter(q => q[1] !== null && q[0] >= t0)}));
       const pts = multi ? sers.flatMap(s => s.pts) : sers[0].pts;
       const dots = !multi && p.dots && port !== "D" && !is861(rows[rows.length - 1]) ? rows.map(r => [r.ts * 1000, num(r[p.dots])]).filter(q => q[1] !== null && q[0] >= t0) : [];
       let lo = pts.length ? Math.min(...pts.map(q => q[1])) : 0, hi = pts.length ? Math.max(...pts.map(q => q[1])) : 1;
@@ -590,7 +592,7 @@
     const l0 = allLayers[idx[0]];
     const t0 = Math.min(...ok.map(o => o.r.t0)), t1 = Math.max(...ok.map(o => o.r.t1));
     const series = ok.map(o => ({name: `${o.l.material || "?"} · ${o.l.sensor_port}`, color: MEMBER_COLORS[o.k % MEMBER_COLORS.length], rows: thin(o.r.hit.rows)}));
-    drawChart(canvas, [], t0, Math.max(t1, t0 + 1000), l0.started_ms, l0.ended_ms, l0.sensor_port, {toggle: true, series, panels: ["thk_med", "rate_fit", ...(ok.some(o => hasPower861(o.r.hit.rows)) ? ["power"] : [])], detMs: ok[0].r.merged.det_ms, title: idx.map(j => allLayers[j].material || "?").join(":")});
+    drawChart(canvas, [], t0, Math.max(t1, t0 + 1000), l0.started_ms, l0.ended_ms, l0.sensor_port, {toggle: true, series, tempSeries: ok.filter(o => tempSource(o.l)).map(o => ({name: `${o.l.material || "?"} · ${tempSource(o.l)}`, color: MEMBER_COLORS[o.k % MEMBER_COLORS.length], rows: o.r.hit.temps})), panels: ["thk_med", "rate_fit", ...(ok.some(o => hasPower861(o.r.hit.rows)) ? ["power"] : [])], detMs: ok[0].r.merged.det_ms, title: idx.map(j => allLayers[j].material || "?").join(":")});
     const parts = idx.map((j, k) => {
       const r = rs[k];
       return r ? {...liveParts(r.merged, r.hit.rows, r.running, r.out), l: r.merged} : null;
