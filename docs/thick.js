@@ -79,8 +79,9 @@
   // Optional 2nd arg: /live row. Mixed-ASCII rows (proto "mixed") also carry the active crystal; older rows lack it and the badge is unchanged.
   const healthBadge = (h, p) => (h === null || h === undefined || Number.isNaN(Number(h)) ? null : {text: `health ${Math.round(Number(h))}%${p && p.proto === "mixed" && p.crystal ? ` · 결정 ${p.crystal}` : ""}`, color: Number(h) <= 70 ? "#d33" : Number(h) <= 80 ? "#e8890c" : ""});
   const live = async () => (await getJson("/live"))?.ports || null;
-  async function range(port, fromMs, toMs, ms = 8000) {
-    const j = await getJson(`/range?port=${encodeURIComponent(port)}&from=${Math.floor(fromMs / 1000)}&to=${Math.ceil(toMs / 1000)}`, ms);
+  // on: server drops 861 rows with power 0 (preheat view only needs the powered part).
+  async function range(port, fromMs, toMs, ms = 8000, on = false) {
+    const j = await getJson(`/range?port=${encodeURIComponent(port)}&from=${Math.floor(fromMs / 1000)}&to=${Math.ceil(toMs / 1000)}${on ? "&on=1" : ""}`, ms);
     return j ? (j.rows || []) : null;
   }
   // Source thermocouple controllers (TK4S) exist for O-n only; M-n has no temperature.
@@ -538,7 +539,7 @@
         // Initial load in 5-min chunks (a 30-min /range is ~1.6 MB and times out on slow mobile links); kept rows accumulate across retries.
         const from = hit.full ? hit.lastTs * 1000 : (hit.cur || t0);
         const to = hit.full || l.ended_ms ? t1 + 2000 : Math.min(t1 + 2000, from + CHUNK_MS);
-        const rows = await range(l.sensor_port, from, to, hit.full ? 8000 : 15000);
+        const rows = await range(l.sensor_port, from, to, hit.full ? 8000 : 15000, pre);
         if (rows && !hit.full && to < t1 + 2000) {
           for (const r of rows) if (r.ts > hit.lastTs) { hit.rows.push(r); hit.lastTs = r.ts; }
           hit.cur = to; hit.fails = 0; hit.nextAt = 0;
