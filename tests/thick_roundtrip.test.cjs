@@ -49,8 +49,8 @@ const server = http.createServer((req, res) => {
   }
   calls.length = 0;
   const rows = await Thick.series(cur[1].sensor_port, cur[1].started_ms, cur[1].ended_ms);
-  assert.equal(rows.length, 6);  // 10-min window = two 5-min chunks
-  assert.deepEqual(calls.slice(0, 2), [{port: "B", from: 1760000000, to: 1760000300}, {port: "B", from: 1760000300, to: 1760000600}]);
+  assert.equal(rows.length, 3);  // 10-min window fits one 1-h chunk
+  assert.deepEqual(calls[0], {port: "B", from: 1760000000, to: 1760000600});
 
   const plain = reopen(save([mk("HAT-CN", "O1"), mk("Al", "M1")]));
   assert.ok(plain.every(l => !l.sensor_port), "no-sensor log unchanged");

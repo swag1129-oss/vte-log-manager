@@ -79,9 +79,10 @@
   // Optional 2nd arg: /live row. Mixed-ASCII rows (proto "mixed") also carry the active crystal; older rows lack it and the badge is unchanged.
   const healthBadge = (h, p) => (h === null || h === undefined || Number.isNaN(Number(h)) ? null : {text: `health ${Math.round(Number(h))}%${p && p.proto === "mixed" && p.crystal ? ` · 결정 ${p.crystal}` : ""}`, color: Number(h) <= 70 ? "#d33" : Number(h) <= 80 ? "#e8890c" : ""});
   const live = async () => (await getJson("/live"))?.ports || null;
-  // on: server drops 861 rows with power 0 (preheat view only needs the powered part).
-  async function range(port, fromMs, toMs, ms = 8000, on = false) {
-    const j = await getJson(`/range?port=${encodeURIComponent(port)}&from=${Math.floor(fromMs / 1000)}&to=${Math.ceil(toMs / 1000)}${on ? "&on=1" : ""}`, ms);
+  // lite=1: only the fields this app reads (server also gzips: 30 min ≈ 45 KB instead of 1.5 MB).
+  // pre: preheat view — server drops 861 rows with power 0 and keeps one row per 5 s (flag rows always kept).
+  async function range(port, fromMs, toMs, ms = 8000, pre = false) {
+    const j = await getJson(`/range?port=${encodeURIComponent(port)}&from=${Math.floor(fromMs / 1000)}&to=${Math.ceil(toMs / 1000)}&lite=1${pre ? "&on=1&every=5" : ""}`, ms);
     return j ? (j.rows || []) : null;
   }
   // Source thermocouple controllers (TK4S) exist for O-n only; M-n has no temperature.
@@ -513,7 +514,7 @@
       updateLive(box, r.merged, r.hit.rows, r.running, r.out, r.now, tempSource(l) ? r.hit.temps : null);
     }
   }
-  const CHUNK_MS = 5 * 60000;
+  const CHUNK_MS = 60 * 60000;  // lite+gzip made 5-min chunks unnecessary; still bounds one request to 1 h
   // Layers whose pre-Start rate the user asked to see (session only, never saved).
   const preWatch = new WeakSet();
   const isPreWatched = l => Boolean(l) && preWatch.has(l);
@@ -536,7 +537,7 @@
     if (!hit.done && !hit.busy && now >= hit.nextAt) {
       hit.busy = true;
       try {
-        // Initial load in 5-min chunks (a 30-min /range is ~1.6 MB and times out on slow mobile links); kept rows accumulate across retries.
+        // Initial load in CHUNK_MS pieces; kept rows accumulate across retries.
         // hit.cur = time fetched up to (not the last row: with on=1 a powered-off port returns no rows, and from=lastTs=0 asked for the whole DB on 11-09).
         const from = hit.full ? Math.max(t0, (hit.cur || t0) - 5000) : (hit.cur || t0);
         const to = hit.full || l.ended_ms ? t1 + 2000 : Math.min(t1 + 2000, from + CHUNK_MS);
