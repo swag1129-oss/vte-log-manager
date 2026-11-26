@@ -49,6 +49,32 @@
     if (!p || p.sensor === null || p.sensor === undefined || Number(p.sensor) === m.sensor) return "";
     return `${m.port}는 지금 센서 ${p.sensor}(${sourceNames(m.port, Number(p.sensor)) || "?"}) — ${layer.port}는 센서 ${m.sensor}`;
   }
+  // 861 slot vs the layer's chosen material. Names: lowercase alphanumerics, trailing "_<number>" (tooling factor) stripped; TF compared within +-0.5.
+  const slotBody = n => String(n === null || n === undefined ? "" : n).replace(/_\d+(?:\.\d+)?\s*$/, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  function slotOf(layer, livePorts) {
+    const p = livePorts && layer && layer.sensor_port && livePorts[layer.sensor_port];
+    if (!p || p.material_name === undefined) return null;
+    return {no: p.material_no, name: p.material_name, tooling: p.material_tooling};
+  }
+  function matCheck(layer, slot) {
+    const mat = String((layer && layer.material) || "").trim();
+    const nm = slot && slot.name !== null && slot.name !== undefined ? String(slot.name).trim() : "";
+    if (!mat || !nm) return {state: "none", text: !mat ? "재료 미선택 — 861 슬롯 비교 불가" : "861 슬롯 이름 정보 없음"};
+    const tf = Number(layer.tooling_factor), st = Number(slot.tooling);
+    const haveTf = String(layer.tooling_factor ?? "").trim() !== "" && Number.isFinite(tf) && slot.tooling !== null && slot.tooling !== undefined && Number.isFinite(st);
+    const nameOk = slotBody(mat) === slotBody(nm), tfOk = !haveTf || Math.abs(tf - st) <= 0.5;
+    if (nameOk && tfOk) return {state: "ok", text: ""};
+    const fmt = v => (Number.isFinite(Number(v)) && String(v ?? "") !== "" ? String(Math.round(Number(v) * 100) / 100) : "?");
+    return {state: "bad", text: `861 ${layer.sensor_port}#${slot.no} ${nm} (TF ${fmt(slot.tooling)}) ≠ 선택 ${mat} (TF ${fmt(layer.tooling_factor)})`};
+  }
+  // Remember the slot a layer was recorded against (running/preheating layers only; finished layers keep what they had).
+  function stampSlot(layer, livePorts) {
+    if (!layer || layer.ended_ms) return;
+    const s = slotOf(layer, livePorts);
+    if (s) { layer.slot_no = s.no === null || s.no === undefined ? "" : String(s.no); layer.slot_name = s.name === null || s.name === undefined ? "" : String(s.name); layer.slot_tf = s.tooling === null || s.tooling === undefined ? "" : String(s.tooling); }
+  }
+  const layerSlot = l => (l && l.slot_name ? {no: l.slot_no, name: l.slot_name, tooling: l.slot_tf === "" || l.slot_tf === undefined ? null : Number(l.slot_tf)} : null);
+  const matCheckLayer = l => (l && l.sensor_port ? matCheck(l, layerSlot(l)) : {state: "ok", text: ""});
   // Layers of one co-dep block that share a physical sensor (e.g. O-1 + O-2) read the summed thickness.
   function sharedSensorNote(layers) {
     if (!layers || layers.length < 2) return "";
@@ -552,8 +578,16 @@
     if (!enabled()) return;
     const warns = [...root.querySelectorAll("[data-thickwarn]")];
     const badges = [...root.querySelectorAll("[data-thickhealth]")];
-    if (warns.length || badges.length) {
+    const mats = [...root.querySelectorAll("[data-matwarn]")];
+    if (warns.length || badges.length || mats.length) {
       const lp = await live();
+      if (lp) for (const l of ctx.layers()) stampSlot(l, lp);
+      for (const el of mats) {
+        const ls = ctx.layers(), rs = String(el.dataset.matwarn).split(",").map(Number).map(j => ls[j]).filter(l => l && l.sensor_port && !l.ended_ms).map(matCheckLayer).filter(r => r.state !== "ok");
+        el.textContent = rs.map(r => r.text).join(" / ");
+        el.style.color = rs.some(r => r.state === "bad") ? "#d33" : "#888";
+        el.style.fontWeight = rs.some(r => r.state === "bad") ? "600" : "";
+      }
       for (const el of badges) {
         const hp = lp?.[el.dataset.thickhealth], b = healthBadge(hp?.health, hp);
         el.textContent = b ? b.text : ""; el.style.color = b ? b.color : "";
@@ -784,5 +818,5 @@
     return rows.filter((r, i) => i % step === 0 || r.flag);
   }
 
-  root.VTEThick = {powerAt, isPreWatched, togglePreWatch, findAutoStart, findAutoStop, zeroEvent, SOURCE_SENSOR, applyConfig, resetConfig, ensureConfig, matchLayer, layerPatch, eventStart, eventStop, layersRange, eventsRange, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, analyze, tempAt, tempSource, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, TOKEN_KEY, lastPost, postJson, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
+  root.VTEThick = {powerAt, isPreWatched, togglePreWatch, findAutoStart, findAutoStop, zeroEvent, SOURCE_SENSOR, applyConfig, resetConfig, ensureConfig, matchLayer, layerPatch, eventStart, eventStop, layersRange, eventsRange, sensorFor, autoSensor, fillSensors, sensorWarning, sharedSensorNote, matCheck, matCheckLayer, stampSlot, slotOf, layerSlot, analyze, tempAt, tempSource, rowAt, codepDoping, dopingTexts, MEMBER_COLORS, SENSORS, enabled, url, KEY, TOKEN_KEY, lastPost, postJson, getJson, live, range, snapshot, setTarget, clearTarget, healthBadge, series, layerSeries, watch, stop, refresh, drawChart, chartTitle, fmtNum};
 })(typeof globalThis !== "undefined" ? globalThis : this);

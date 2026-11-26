@@ -514,7 +514,7 @@
       if (text) savedTimer = setTimeout(() => { el.textContent = ""; }, 4000);
     }
     $("#editorSaved").addEventListener("click", () => showSaved(""));
-    const thickSelect = (l, i) => !Thick.enabled() ? "" : `<div class="thick-row"><label>두께 센서<select data-i="${i}" data-k="sensor_port">${["", ...Thick.SENSORS].map(p => `<option ${p === (l.sensor_port || "") ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>${l.sensor_port ? `<span class="thick-status" data-thickstatus data-i="${i}"></span>` : ""}${l.sensor_port && !l.started_at && blockOf(i).length > 1 ? `<button type="button" class="link" data-act="prewatch" data-i="${i}">${Thick.isPreWatched(l) ? "예열 rate 보는 중 ✓" : "예열 rate 보기"}</button>` : ""}${l.sensor_port ? `<span class="thick-health" data-thickhealth="${esc(l.sensor_port)}"></span>` : ""}<div class="thick-warn" data-thickwarn="${blockOf(i).join(",")}"></div></div>`;
+    const thickSelect = (l, i) => !Thick.enabled() ? "" : `<div class="thick-row"><label>두께 센서<select data-i="${i}" data-k="sensor_port">${["", ...Thick.SENSORS].map(p => `<option ${p === (l.sensor_port || "") ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>${l.sensor_port ? `<span class="thick-status" data-thickstatus data-i="${i}"></span>` : ""}${l.sensor_port && !l.started_at && blockOf(i).length > 1 ? `<button type="button" class="link" data-act="prewatch" data-i="${i}">${Thick.isPreWatched(l) ? "예열 rate 보는 중 ✓" : "예열 rate 보기"}</button>` : ""}${l.sensor_port ? `<span class="thick-health" data-thickhealth="${esc(l.sensor_port)}"></span>` : ""}<div class="thick-warn" data-thickwarn="${blockOf(i).join(",")}"></div><div class="thick-warn" data-matwarn="${blockOf(i).join(",")}"></div></div>`;
     const thickExtra = (l, i, merged = false) => !Thick.enabled() || !l.sensor_port ? "" : merged ? measureRow(l, i, "thk") : `${measureRow(l, i, "thk")}
       <div class="thick-box" data-thickbox data-i="${i}">
         <div class="thick-live">
@@ -789,6 +789,11 @@
         return members[0].codep && members.some(m => String(m.material || "").trim()) && members.some(m => !String(m.material || "").trim() || Core.toFloat(m.vol) === null);
       });
       if (halfFilled) return err("공증착 재료마다 재료명과 부피비(%)를 입력해 주세요.");
+      if (Thick.enabled()) {
+        try { const lp = await Thick.live(); if (lp) layers.forEach(l => Thick.stampSlot(l, lp)); } catch (e) { /* offline: use the last stamped slot */ }
+        const bad = layers.map(l => ({l, r: Thick.matCheckLayer(l)})).filter(x => x.r.state === "bad");
+        if (bad.length && !confirm(`861 슬롯과 선택한 재료가 달라요.\n${bad.map(x => x.r.text).join("\n")}\n그래도 저장할까요?`)) { showSaved(""); return; }
+      }
       const isTooling = d.type === "툴링";
       const editing = d.editing;
       // One clock read for both the file name tag and the process id, so they never disagree.
