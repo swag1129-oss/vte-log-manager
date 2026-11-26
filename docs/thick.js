@@ -50,7 +50,10 @@
     return `${m.port}는 지금 센서 ${p.sensor}(${sourceNames(m.port, Number(p.sensor)) || "?"}) — ${layer.port}는 센서 ${m.sensor}`;
   }
   // 861 slot vs the layer's chosen material. Names: lowercase alphanumerics, trailing "_<number>" (tooling factor) stripped; TF compared within +-0.5.
-  const slotBody = n => String(n === null || n === undefined ? "" : n).replace(/_\d+(?:\.\d+)?\s*$/, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  // Material identity = first "_" token, letters/digits only (861 slots carry suffixes: _100 tooling, _auto, _O_9, _monit3).
+  // Trailing digits are tried off as well (Ag100 = Ag) only when the plain tokens differ; the tooling check catches _100 vs _150.
+  const slotBody = n => String(n === null || n === undefined ? "" : n).split("_")[0].toLowerCase().replace(/[^a-z0-9]/g, "");
+  const sameMat = (a, b) => { const x = slotBody(a), y = slotBody(b); return x === y || (x.replace(/\d+$/, "") === y.replace(/\d+$/, "") && x.replace(/\d+$/, "") !== "" && (/^\D+$/.test(x) || /^\D+$/.test(y))); };
   function slotOf(layer, livePorts) {
     const p = livePorts && layer && layer.sensor_port && livePorts[layer.sensor_port];
     if (!p || p.material_name === undefined) return null;
@@ -62,7 +65,8 @@
     if (!mat || !nm) return {state: "none", text: !mat ? "재료 미선택 — 861 슬롯 비교 불가" : "861 슬롯 이름 정보 없음"};
     const tf = Number(layer.tooling_factor), st = Number(slot.tooling);
     const haveTf = String(layer.tooling_factor ?? "").trim() !== "" && Number.isFinite(tf) && slot.tooling !== null && slot.tooling !== undefined && Number.isFinite(st);
-    const nameOk = slotBody(mat) === slotBody(nm), tfOk = !haveTf || Math.abs(tf - st) <= 0.5;
+    const sfx = n => (/_(\d+(?:\.\d+)?)\s*$/.exec(String(n)) || [])[1], sa = sfx(mat), sb = sfx(nm);
+    const nameOk = sameMat(mat, nm) && !(sa && sb && Number(sa) !== Number(sb)), tfOk = !haveTf || Math.abs(tf - st) <= 0.5;
     if (nameOk && tfOk) return {state: "ok", text: ""};
     const fmt = v => (Number.isFinite(Number(v)) && String(v ?? "") !== "" ? String(Math.round(Number(v) * 100) / 100) : "?");
     return {state: "bad", text: `861 ${layer.sensor_port}#${slot.no} ${nm} (TF ${fmt(slot.tooling)}) ≠ 선택 ${mat} (TF ${fmt(layer.tooling_factor)})`};
