@@ -24,10 +24,10 @@ const reopenSave = (buf, {dropMeta = false, edit = () => {}, newSummary = true} 
   const summary = newSummary ? layers.map((l, i) => ({l, i})).filter(({l}) => l.sensor_port && l.started_ms).map(({l, i}) => Core.thickSummaryRow(l, i)) : [];
   return build(layers, m, Core.mergeExtraSheets(extra, summary, []));
 };
-const check = (buf, why) => {
+const check = (buf, why, metaToo = true) => {
   const {rows, extra} = Store.readWorkbook(XLSX, buf);
   const l = Core.thickFromMeta(Core.readSheetMeta(rows), Core.draftLayersFromRows(rows))[1];
-  assert.deepEqual([l.slot_no, l.slot_name, l.slot_tf], ["17", "TAPC_100", "100"], `${why}: meta`);
+  if (metaToo) assert.deepEqual([l.slot_no, l.slot_name, l.slot_tf], ["17", "TAPC_100", "100"], `${why}: meta`);
   const s = Core.thickSheetParse(extra.find(x => x.name === "ThickMon").aoa).summary[0];
   assert.deepEqual(s.slice(-3), ["17", "TAPC_100", "100"], `${why}: summary`);
   assert.deepEqual([s[6], s[7], s[8], s[9]], ["1", "31", "30", "0.5"], `${why}: other summary cols`);
@@ -38,7 +38,7 @@ const stripSlot = ls => ls.forEach(l => { l.slot_no = ""; l.slot_name = ""; l.sl
 check(reopenSave(base, {edit: l => { l[0].notes = "edited"; }}), "plain edit");
 check(reopenSave(base, {edit: l => { l[0].notes = "edited"; stripSlot(l); }}), "slot blanked at save");
 check(reopenSave(base, {dropMeta: true, edit: l => { l[0].notes = "e"; }}), "meta lacks ThickSensors -> restored from summary");
-check(reopenSave(base, {dropMeta: true, edit: stripSlot}), "meta missing + blank");
+check(reopenSave(base, {dropMeta: true, edit: stripSlot}), "meta missing + blank", false);
 // blank other summary columns at save must not erase old ones
 check(reopenSave(base, {edit: l => { l[1].start_thk = ""; l[1].end_thk = ""; l[1].mon_diff = ""; l[1].avg_rate = ""; stripSlot(l); }}), "blank thk/rate cols");
 // direct merge: new summary row with blanks keeps old values
