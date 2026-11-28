@@ -803,7 +803,7 @@
         : {App: `VTE Log PWA ${config.version}`, Author: author(), Device: deviceName(), "Created At": d.createdAt, Preset: d.preset};
       meta[Core.PROCESS_ID_KEY] = Core.keepProcessId(editing && editing.meta, d.date, tag);
       layers.forEach(l => { if (l.det_ms && !l.det_power) l.det_power = String(l.start_power || ""); if (l.det_ms && !l.det_temp) l.det_temp = String(l.start_temp || ""); });
-      Object.assign(meta, Core.maskHoldersToMeta(d.maskHolders), Core.samplesToMeta(layers, d.maskHolders), Core.thickToMeta(layers));
+      Object.assign(meta, Core.maskHoldersToMeta(d.maskHolders), Core.samplesToMeta(layers, d.maskHolders), Core.thickToMeta(layers, editing && editing.meta));
       const sheet = Core.buildProcessLogSheet({isTooling, layers: Core.draftLayersToEditorRows(layers), memo: d.memo, meta, timeTag: tag});
       let extraSheets;
       try { extraSheets = await buildExtraSheets(layers, editing); } catch (e) { return err(e.message); }
@@ -910,6 +910,7 @@
       const layers = Core.thickFromMeta(meta, Core.draftLayersFromRows(rows));
       // Sheets after the first travel with the draft so saving writes them back. If they cannot be read, do not silently drop them.
       const extra = await app.ensureExtra(log);
+      Core.thickFromSummary(extra, layers);
       if (!extra && !confirm("이 파일의 추가 시트(ThickMon 등)를 읽지 못했어요.\n지금 저장하면 추가 시트가 사라질 수 있어요. 그래도 수정할까요?")) return;
       // A file the editor cannot rewrite faithfully (old hand-made / converted layouts) is never overwritten: saving makes a new file.
       const lossy = layers.length > 0 && Core.editRoundTripLossy(rows, layers, meta, log.type === "툴링");

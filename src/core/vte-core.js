@@ -728,13 +728,22 @@
   const THICK_SHEET = "ThickMon";
   // meta short key -> draft layer key
   const THICK_FIELDS = {s: "sensor_port", sn: "slot_no", sm: "slot_name", st: "slot_tf", a: "start_thk", b: "end_thk", d: "mon_diff", r: "avg_rate", dp: "det_power", dt: "det_temp", h: "heat", hd: "heat_delta", cv: "codep_cv"};
-  function thickToMeta(layers) {
+  // oldMeta: the meta the log was opened with; a blank new value never erases what the file already had for that layer.
+  function thickToMeta(layers, oldMeta) {
     const items = [];
+    const prev = new Map(thickItems(oldMeta).map(o => [o.i, o]));
     (layers || []).forEach((l, i) => {
       if (!l.sensor_port) return;
       const it = {i, t0: l.started_ms || 0, t1: l.ended_ms || 0};
       for (const [k, f] of Object.entries(THICK_FIELDS)) it[k] = l[f] === undefined || l[f] === null ? "" : String(l[f]);
       if (l.det_ms) it.ds = l.det_ms;
+      const o = prev.get(i);
+      if (o && (!o.s || o.s === it.s)) {
+        for (const k of Object.keys(THICK_FIELDS)) if (it[k] === "" && o[k] !== undefined && o[k] !== "") it[k] = String(o[k]);
+        if (!it.t0 && o.t0) it.t0 = o.t0;
+        if (!it.t1 && o.t1) it.t1 = o.t1;
+        if (!it.ds && o.ds) it.ds = o.ds;
+      }
       items.push(it);
     });
     return {[THICK_KEY]: items.length ? JSON.stringify(items) : ""};
@@ -753,6 +762,26 @@
       if (it.ds) l.det_ms = Number(it.ds);
       for (const [k, f] of Object.entries(THICK_FIELDS)) if (it[k] !== undefined && it[k] !== "") l[f] = String(it[k]);
       l.sensor_port = String(it.s || "");
+    }
+    return layers;
+  }
+  // ThickMon summary column -> draft layer key (columns after Layer/Material/Source/Sensor/Start/End).
+  const SUMMARY_FIELDS = {6: "start_thk", 7: "end_thk", 8: "mon_diff", 9: "avg_rate", 10: "end_rate", 12: "det_power", 13: "det_temp", 18: "codep_cv", 19: "slot_no", 20: "slot_name", 21: "slot_tf"};
+  // Fill still-empty thick fields of layers from the file's ThickMon summary (matched by layer number + sensor). Never overwrites a value.
+  function thickFromSummary(extra, layers) {
+    const sheet = (extra || []).find(s => s.name === THICK_SHEET);
+    const parsed = sheet && thickSheetParse(sheet.aoa);
+    if (!parsed) return layers;
+    for (const r of parsed.summary) {
+      const l = layers[Number(r[0]) - 1];
+      if (!l || !r[3] || (l.sensor_port && l.sensor_port !== String(r[3]))) continue;
+      if (!l.sensor_port) l.sensor_port = String(r[3]);
+      if (!l.started_ms && Number(r[16])) l.started_ms = Number(r[16]);
+      if (!l.ended_ms && Number(r[17])) l.ended_ms = Number(r[17]);
+      for (const [c, f] of Object.entries(SUMMARY_FIELDS)) {
+        const v = r[c];
+        if ((l[f] === undefined || l[f] === null || l[f] === "") && v !== undefined && v !== null && v !== "") l[f] = String(v);
+      }
     }
     return layers;
   }
@@ -827,7 +856,9 @@
     if (!old) return oldAoa;
     const key = r => `${r[3]}|${r[4]}`;
     const fresh = new Set(newSummary.map(key));
-    const summary = [...newSummary, ...old.summary.filter(r => !fresh.has(key(r)))];
+    const oldBy = new Map(old.summary.map(r => [key(r), r]));
+    const filled = newSummary.map(r => { const o = oldBy.get(key(r)); return o ? r.map((v, c) => ((v === "" || v === null || v === undefined) && o[c] !== undefined && o[c] !== null && o[c] !== "" ? o[c] : v)) : r; });
+    const summary = [...filled, ...old.summary.filter(r => !fresh.has(key(r)))];
     const seen = new Set();
     const merged = [];
     for (const r of [...old.series, ...newSeries]) {
@@ -1064,7 +1095,7 @@
     layeredToolingMeasurements, latestOf, legacyCalibrationMeta, legacyCalibrationMeasurements, emptyCalibrationMeta,
     calibrationMetaFromRows, calibrationMeasurementsFromRows, matchCalibration, noCalibration, comboLabel, mergeComboOption,
     buildFileIndex, buildCalibrationIndex,
-    DRAFT_LAYER_DEFAULTS, draftLayerToEditorRow, draftLayersToEditorRows, tagCodepRows, codepShare, CODEP_COL, readSheetMeta, THICK_KEY, THICK_SHEET, SUMMARY_HEAD, SERIES_HEAD, thickToMeta, thickFromMeta, thickItems, thickResult, cancelMark, detectStart, heatCheck, thickSheetParse, thickSheetMerge, unionExtra, thickLoss, thickPoints, thickSummaryRow, thickSeriesRows, mergeExtraSheets, editRoundTripLossy, draftLayersFromRows, presetToDraftLayers, draftLayersToPresetRows,
+    DRAFT_LAYER_DEFAULTS, draftLayerToEditorRow, draftLayersToEditorRows, tagCodepRows, codepShare, CODEP_COL, readSheetMeta, thickFromSummary, THICK_KEY, THICK_SHEET, SUMMARY_HEAD, SERIES_HEAD, thickToMeta, thickFromMeta, thickItems, thickResult, cancelMark, detectStart, heatCheck, thickSheetParse, thickSheetMerge, unionExtra, thickLoss, thickPoints, thickSummaryRow, thickSeriesRows, mergeExtraSheets, editRoundTripLossy, draftLayersFromRows, presetToDraftLayers, draftLayersToPresetRows,
     buildPresetWorkbookSheets, safeFileName, pathSafe, timeTag, PROCESS_ID_KEY, processId, keepProcessId,
     setAoa, buildProcessLogSheet, processLogFolder, buildCalibrationSheet, buildStructureSheet, structureRowsFromSheet
   };
